@@ -1,6 +1,6 @@
 use std::fmt;
 pub enum OpCode{
-    Constant(usize),
+    Constant(u16),
     Return,
 }
 pub struct Chunk{
@@ -10,6 +10,7 @@ pub struct Chunk{
 }
 
 pub type Value = f64;
+
 
 impl Chunk{
     pub fn new() -> Chunk{
@@ -23,12 +24,12 @@ impl Chunk{
         self.lines.push(line);
         self.code.push(byte);
     }
-    pub fn add_const(&mut self, value: Value) -> usize{
+    pub fn add_const(&mut self, value: Value) -> u16{
         self.constants.push(value);
-        self.constants.len() - 1
+        self.constants.len() as u16 - 1
     }
-    pub fn get_const(&self, index: usize) -> Value{
-        self.constants[index]
+    pub fn get_const(&self, index: u16) -> Value{
+        self.constants[index as usize]
     }
 }
 
