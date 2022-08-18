@@ -1,4 +1,6 @@
 use std::fmt;
+
+#[derive(Debug, Clone, Copy)]
 pub enum OpCode{
     Constant(u16),
     Return,
@@ -31,6 +33,20 @@ impl Chunk{
     pub fn get_const(&self, index: u16) -> Value{
         self.constants[index as usize]
     }
+
+    pub fn code(&self) -> &[OpCode]{
+        &self.code
+    }
+
+    pub fn dissassemble_ins(&self, offset: usize) -> String{
+        let prefix = 
+            if offset > 0 && self.lines[offset] == self.lines[offset - 1]{
+                "   |".to_string()
+            }else{
+                format!("{:04}", self.lines[offset])
+            };
+            format!("l{prefix}  #{:04} {}", offset, self.code[offset].dissassemble(self))
+    }
 }
 
 impl Default for Chunk {
@@ -41,13 +57,8 @@ impl Default for Chunk {
 
 impl fmt::Display for Chunk{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (offset, instruction) in self.code.iter().enumerate(){
-            if offset > 0 && self.lines[offset] == self.lines[offset - 1]{
-                write!(f, "   | ")?;
-            }else{
-                write!(f, "{:04} ", self.lines[offset])?;
-            }
-            writeln!(f, "#{:04} {}", offset, instruction.dissassemble(self))?;
+        for (offset, _) in self.code.iter().enumerate(){
+            writeln!(f, "{}", self.dissassemble_ins(offset))?;
         }
         Ok(())
     }
@@ -56,7 +67,7 @@ impl fmt::Display for Chunk{
 impl OpCode{
     pub fn dissassemble(&self, chunk: &Chunk) -> String{
         match self{
-            OpCode::Constant(index) => format!("OP_CONSTANT #{:04} '{}'", index, chunk.get_const(*index)),
+            OpCode::Constant(index) => format!("OP_CONSTANT<#{:04}, '{}'>", index, chunk.get_const(*index)),
             OpCode::Return => "OP_RETURN".to_string(),
         }
     }
