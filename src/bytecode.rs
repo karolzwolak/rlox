@@ -4,6 +4,11 @@ use std::fmt;
 pub enum OpCode{
     Constant(u16),
     Return,
+    Negate,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
 }
 pub struct Chunk{
     code: Vec<OpCode>,
@@ -22,13 +27,17 @@ impl Chunk{
             lines: Vec::new(),
         }
     }
-    pub fn write_chunk(&mut self, byte: OpCode, line: usize){
+    pub fn write_ins(&mut self, byte: OpCode, line: usize){
         self.lines.push(line);
         self.code.push(byte);
     }
     pub fn add_const(&mut self, value: Value) -> u16{
         self.constants.push(value);
         self.constants.len() as u16 - 1
+    }
+    pub fn add_const_ins(&mut self, value: Value, line: usize){
+        let constant = self.add_const(value);
+        self.write_ins(OpCode::Constant(constant), line);
     }
     pub fn get_const(&self, index: u16) -> Value{
         self.constants[index as usize]
@@ -69,6 +78,12 @@ impl OpCode{
         match self{
             OpCode::Constant(index) => format!("OP_CONSTANT<#{:04}, '{}'>", index, chunk.get_const(*index)),
             OpCode::Return => "OP_RETURN".to_string(),
+            OpCode::Negate => "OP_NEGATE".to_string(),
+            OpCode::Add => "OP_ADD".to_string(),
+            OpCode::Subtract => "OP_SUBTRACT".to_string(),
+            OpCode::Multiply => "OP_MULTIPLY".to_string(),
+            OpCode::Divide => "OP_DIVIDE".to_string(),
+
         }
     }
 }
