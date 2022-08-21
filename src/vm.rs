@@ -1,14 +1,8 @@
 use crate::bytecode;
-use std::io::Cursor;
 pub struct VM<'a> {
     chunk: &'a bytecode::Chunk,
     ip: usize,
-    mode: ExecutionMode,
-}
-
-pub enum ExecutionMode {
-    Normal,
-    Debug,
+    stack: Vec<bytecode::Value>,
 }
 
 pub enum InterpretResult {
@@ -18,28 +12,37 @@ pub enum InterpretResult {
 }
 
 impl<'a> VM<'a> {
-    pub fn with_chunk(chunk: &'a bytecode::Chunk, mode: ExecutionMode) -> Self {
-        Self { chunk, ip: 0 
-        , mode }
+    const STACK_MAX: usize = 256;
+    pub fn with_chunk(chunk: &'a bytecode::Chunk) -> Self {
+        Self {
+            chunk,
+            ip: 0,
+            stack: Vec::with_capacity(Self::STACK_MAX),
+        }
     }
 
-    fn trace_ins(&self){
-       println!("ins: {}", self.chunk.dissassemble_ins(self.ip - 1)); 
+    fn _trace_ins(&self) {
+        println!("ins:   {}", self.chunk.dissassemble_ins(self.ip));
     }
 
     pub fn interpret(&mut self) -> InterpretResult {
         let code = self.chunk.code();
         while !self.is_at_end() {
-            let ins = self.advance();
-            if let ExecutionMode::Debug = self.mode {
-                self.trace_ins();
+            #[cfg(feature = "trace")]
+            {
+                println!("stack: {:?}", self.stack);
+                self._trace_ins();
             }
-            match ins{
+            let ins = self.advance();
+            match ins {
                 bytecode::OpCode::Constant(index) => {
                     let value = self.chunk.get_const(*index);
-                    println!("{}", value);
+                    self.stack.push(value);
                 }
-                bytecode::OpCode::Return => break,
+                bytecode::OpCode::Return => {
+                    println!("{}", self.stack.pop().unwrap());
+                    break;
+                }
             }
         }
         InterpretResult::Ok
