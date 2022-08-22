@@ -2,6 +2,9 @@ use std::{io::{self, Write}, fs};
 
 pub mod bytecode;
 pub mod vm;
+pub mod compiler;
+pub mod scanner;
+pub mod token;
 
 pub type Error = Box<dyn std::error::Error>;
 pub type Result<T> = std::result::Result<T, Error>;
