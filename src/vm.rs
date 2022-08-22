@@ -5,12 +5,6 @@ pub struct VM<'a> {
     stack: Vec<bytecode::Value>,
 }
 
-pub enum InterpretResult {
-    Ok,
-    CompileError,
-    RuntimeError,
-}
-
 impl<'a> VM<'a> {
     const STACK_MAX: usize = 256;
     pub fn with_chunk(chunk: &'a bytecode::Chunk) -> Self {
@@ -32,7 +26,7 @@ impl<'a> VM<'a> {
         (a, b)
     }
 
-    pub fn interpret(&mut self) -> InterpretResult {
+    pub fn run(&mut self) -> crate::Result<()> {
         while !self.is_at_end() {
             #[cfg(feature = "trace")]
             self._trace();
@@ -69,7 +63,7 @@ impl<'a> VM<'a> {
                 }
             }
         }
-        InterpretResult::Ok
+        Ok(())
     }
 
     fn is_at_end(&self) -> bool {
@@ -97,7 +91,7 @@ mod tests {
         chunk.write_ins(OpCode::Return, 123);
 
         let mut vm = VM::with_chunk(&chunk);
-        assert!(matches!(vm.interpret(), InterpretResult::Ok));
+        assert!(matches!(vm.run(), Ok(())));
     }
     #[test]
     fn test_binary_ops() {
@@ -113,7 +107,7 @@ mod tests {
         chunk.write_ins(OpCode::Multiply, 123);
 
         let mut vm = VM::with_chunk(&chunk);
-        assert!(matches!(vm.interpret(), InterpretResult::Ok));
+        assert!(matches!(vm.run(), Ok(())));
         assert_eq!(vm.stack, vec![-5.]);
     }
 }

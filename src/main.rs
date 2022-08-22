@@ -1,21 +1,13 @@
-use rlox::{
-    bytecode::{Chunk, OpCode},
-    vm::VM,
-};
+use std::env;
 
-fn main() {
-    let mut chunk = Chunk::new();
-    
-    chunk.add_const_ins(5., 123);
-    chunk.add_const_ins(3., 123);
-    chunk.write_ins(OpCode::Add, 123);
-    chunk.add_const_ins(4., 123);
-    chunk.write_ins(OpCode::Divide, 123);
-    chunk.write_ins(OpCode::Negate, 123);
-    chunk.add_const_ins(2.5, 123);
-    chunk.write_ins(OpCode::Multiply, 123);
-    chunk.write_ins(OpCode::Return, 123);
-
-    let mut vm = VM::with_chunk(&chunk);
-    vm.interpret();
+fn main() -> rlox::Result<()> {
+    let mut args = env::args();
+    if args.len() == 1{
+        rlox::run_repl()
+    } else if args.len() == 2 {
+        rlox::run_file(args.nth(1).unwrap())
+    } else {
+        eprintln!("Usage: rlox [script]");
+        std::process::exit(64);
+    }
 }
