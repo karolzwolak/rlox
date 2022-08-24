@@ -20,6 +20,73 @@ impl<'a> Scanner<'a> {
         }
     }
 
+    fn advance(&mut self) -> Option<u8> {
+        self.current += 1;
+        self.byte_iter.next().copied()
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.byte_iter.peek().copied().copied()
+    }
+
+    fn match_next(&mut self, expected: u8) -> bool {
+        if self.peek() == Some(expected) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn make_token(&self, kind: TokenKind) -> Token {
+        Token::new(kind, self.line)
+    }
+
+    fn skip_whitespace(&mut self) -> Result<()> {
+        loop {
+            match self.peek() {
+                Some(b' ') | Some(b'\r') | Some(b'\t') => {
+                    self.advance();
+                }
+
+                Some(b'\n') => {
+                    self.line += 1;
+                    self.advance();
+                }
+
+                Some(b'/') => {
+                    self.advance();
+                    if self.match_next(b'/') {
+                        while self.peek().unwrap_or(false) != b'\n' {
+                            self.advance();
+                        }
+                    } else {
+                        return self.error("Unexpected character");
+                    }
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn make_token_match(self, to_match: u8, default: TokenKind, matched: TokenKind) -> Token {
+        self.make_token(if self.match_next(to_match) {
+            matched
+        } else {
+            default
+        })
+    }
+
+    fn error(&self, msg: &str) -> Error {
+        Error::from(format!(
+            "error: {} at line {}, column {}-{}",
+            msg, self.line, self.start, self.current
+        ))
+    }
+
     pub fn scan_token(&mut self) -> Result<Token> {
         self.skip_whitespace();
         self.start = self.current;
@@ -36,34 +103,12 @@ impl<'a> Scanner<'a> {
                 b'+' => self.make_token(TokenKind::Plus),
                 b';' => self.make_token(TokenKind::Semicolon),
                 b'*' => self.make_token(TokenKind::Star),
-                b'!' => {
-                    if self.match_next(b'=') {
-                        self.make_token(TokenKind::BangEqual)
-                    } else {
-                        self.make_token(TokenKind::Bang)
-                    }
-                }
-                b'=' => {
-                    if self.match_next(b'=') {
-                        self.make_token(TokenKind::EqualEqual)
-                    } else {
-                        self.make_token(TokenKind::Equal)
-                    }
-                }
-                b'<' => {
-                    if self.match_next(b'=') {
-                        self.make_token(TokenKind::LessEqual)
-                    } else {
-                        self.make_token(TokenKind::Less)
-                    }
-                }
-                b'>' => {
-                    if self.match_next(b'=') {
-                        self.make_token(TokenKind::GreaterEqual)
-                    } else {
-                        self.make_token(TokenKind::Greater)
-                    }
-                }
+
+                b'!' => self.make_token_match('=', TokenKind::Bang, TokenKind::BangEqual),
+                b'=' => self.make_token_match('=', TokenKind::Equal, TokenKind::EqualEqual),
+                b'<' => self.make_token_match('=', TokenKind::Less, TokenKind::LessEqual),
+                b'>' => self.make_token_match('=', TokenKind::Greater, TokenKind::GreaterEqual),
+
                 b'"' => return self.make_string(),
 
                 b'0'..=b'9' => return self.make_number(),
@@ -117,7 +162,7 @@ impl<'a> Scanner<'a> {
         )))
     }
 
-    fn make_identifier(&mut self) -> Token{
+    fn make_identifier(&mut self) -> Token {
         let bytes = self.source.as_bytes();
         while let Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_') = self.peek() {
             self.advance();
@@ -173,61 +218,5 @@ impl<'a> Scanner<'a> {
         } else {
             self.get_identifier()
         }
-    }
-
-    fn advance(&mut self) -> Option<u8> {
-        self.current += 1;
-        self.byte_iter.next().copied()
-    }
-
-    fn peek(&self) -> Option<u8> {
-        self.byte_iter.peek().copied().copied()
-    }
-
-    fn match_next(&mut self, expected: u8) -> bool {
-        if self.peek() == Some(expected) {
-            self.advance();
-            true
-        } else {
-            false
-        }
-    }
-
-    fn make_token(&self, kind: TokenKind) -> Token {
-        Token::new(kind, self.line)
-    }
-
-    fn skip_whitespace(&mut self) -> Result<()> {
-        loop {
-            match self.peek() {
-                Some(b' ') | Some(b'\r') | Some(b'\t') => {
-                    self.advance();
-                }
-
-                Some(b'\n') => {
-                    self.line += 1;
-                    self.advance();
-                }
-
-                Some(b'/') => {
-                    self.advance();
-                    if self.match_next(b'/') {
-                        while self.peek().unwrap_or(false) != b'\n' {
-                            self.advance();
-                        }
-                    } else {
-                        return self.error("Unexpected character");
-                    }
-                }
-                _ => {
-                    break;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn error(&self, msg: &str) -> Error {
-        unimplemented!()
     }
 }
