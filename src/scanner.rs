@@ -25,7 +25,7 @@ impl<'a> Scanner<'a> {
         self.byte_iter.next().copied()
     }
 
-    fn peek(&self) -> Option<u8> {
+    fn peek(&mut self) -> Option<u8> {
         self.byte_iter.peek().copied().copied()
     }
 
@@ -38,8 +38,8 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn make_token(&self, kind: TokenKind) -> Token {
-        Token::new(kind, self.line)
+    fn make_token(&self, kind: TokenKind<'a>) -> Token<'a> {
+        Token::new(kind, self.line, self.start)
     }
 
     fn skip_whitespace(&mut self) -> Result<()> {
@@ -57,11 +57,11 @@ impl<'a> Scanner<'a> {
                 Some(b'/') => {
                     self.advance();
                     if self.match_next(b'/') {
-                        while self.peek().unwrap_or(false) != b'\n' {
+                        while self.peek() != Some(b'\n') {
                             self.advance();
                         }
                     } else {
-                        return self.error("Unexpected character");
+                        return Err(self.error("Unexpected character"));
                     }
                 }
                 _ => {
@@ -72,12 +72,18 @@ impl<'a> Scanner<'a> {
         Ok(())
     }
 
-    fn make_token_match(self, to_match: u8, default: TokenKind, matched: TokenKind) -> Token {
-        self.make_token(if self.match_next(to_match) {
+    fn make_token_match(
+        &mut self,
+        to_match: u8,
+        default: TokenKind<'a>,
+        matched: TokenKind<'a>,
+    ) -> Token<'a> {
+        let kind = if self.match_next(to_match) {
             matched
         } else {
             default
-        })
+        };
+        self.make_token(kind)
     }
 
     fn error(&self, msg: &str) -> Error {
@@ -87,7 +93,7 @@ impl<'a> Scanner<'a> {
         ))
     }
 
-    pub fn scan_token(&mut self) -> Result<Token> {
+    pub fn scan_token(&mut self) -> Result<Token<'a>> {
         self.skip_whitespace();
         self.start = self.current;
 
@@ -104,10 +110,10 @@ impl<'a> Scanner<'a> {
                 b';' => self.make_token(TokenKind::Semicolon),
                 b'*' => self.make_token(TokenKind::Star),
 
-                b'!' => self.make_token_match('=', TokenKind::Bang, TokenKind::BangEqual),
-                b'=' => self.make_token_match('=', TokenKind::Equal, TokenKind::EqualEqual),
-                b'<' => self.make_token_match('=', TokenKind::Less, TokenKind::LessEqual),
-                b'>' => self.make_token_match('=', TokenKind::Greater, TokenKind::GreaterEqual),
+                b'!' => self.make_token_match(b'=', TokenKind::Bang, TokenKind::BangEqual),
+                b'=' => self.make_token_match(b'=', TokenKind::Equal, TokenKind::EqualEqual),
+                b'<' => self.make_token_match(b'=', TokenKind::Less, TokenKind::LessEqual),
+                b'>' => self.make_token_match(b'=', TokenKind::Greater, TokenKind::GreaterEqual),
 
                 b'"' => return self.make_string(),
 
@@ -122,7 +128,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn make_string(&mut self) -> Result<Token> {
+    fn make_string(&mut self) -> Result<Token<'a>> {
         loop {
             match self.peek() {
                 Some(b'"') => {
@@ -145,7 +151,7 @@ impl<'a> Scanner<'a> {
         )))
     }
 
-    fn make_number(&mut self) -> Result<Token> {
+    fn make_number(&mut self) -> Result<Token<'a>> {
         while let Some(b'0'..=b'9') = self.peek() {
             self.advance();
         }
@@ -159,10 +165,11 @@ impl<'a> Scanner<'a> {
 
         Ok(self.make_token(TokenKind::Number(
             self.source[self.start..self.current].parse().unwrap(),
+            (self.current - self.start) as u8,
         )))
     }
 
-    fn make_identifier(&mut self) -> Token {
+    fn make_identifier(&mut self) -> Token<'a> {
         let bytes = self.source.as_bytes();
         while let Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_') = self.peek() {
             self.advance();
@@ -202,14 +209,21 @@ impl<'a> Scanner<'a> {
             }
             b'v' => self.check_keyword(1, 2, "ar", TokenKind::Var),
             b'w' => self.check_keyword(1, 4, "hile", TokenKind::While),
+            _ => self.get_identifier(),
         })
     }
 
-    fn get_identifier(&self) -> TokenKind {
+    fn get_identifier(&self) -> TokenKind<'a> {
         TokenKind::Identifier(&self.source[self.start..self.current])
     }
 
-    fn check_keyword(&self, start: usize, len: usize, rest: &str, kind: TokenKind) -> TokenKind {
+    fn check_keyword(
+        &self,
+        start: usize,
+        len: usize,
+        rest: &str,
+        kind: TokenKind<'a>,
+    ) -> TokenKind<'a> {
         let lexeme_start = self.start + start;
         if self.current - self.start == start + len
             && &self.source[lexeme_start..lexeme_start - len] == rest

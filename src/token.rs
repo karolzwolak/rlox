@@ -1,5 +1,6 @@
+use crate::bytecode::Precedence;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenKind<'a> {
     // Single-character tokens.
     LeftParen,
@@ -27,7 +28,7 @@ pub enum TokenKind<'a> {
     // Literals.
     Identifier(&'a str),
     String(&'a str),
-    Number(f64),
+    Number(f64, u8),
 
     // Keywords.
     And,
@@ -49,24 +50,71 @@ pub enum TokenKind<'a> {
 
     Eof,
 }
+impl<'a> TokenKind<'a>{
+    pub fn precedence(&self) -> Precedence {
+        match self {
+            TokenKind::Slash | TokenKind::Star => Precedence::Factor,
+            TokenKind::Bang | TokenKind::Minus => Precedence::Unary,
+            TokenKind::Equal | TokenKind::BangEqual | TokenKind::Greater | TokenKind::Less | TokenKind::GreaterEqual | TokenKind::LessEqual => Precedence::Equality,
+            TokenKind::Plus | TokenKind::Minus => Precedence::Term,
+            _ => Precedence::None,
+        }
+    }
+}
 
-
-pub struct Token<'a>{
+pub struct Token<'a> {
     kind: TokenKind<'a>,
     line: usize,
+    start: usize,
 }
 
 impl<'a> Token<'a> {
-    pub fn new(kind: TokenKind<'a>, line: usize) -> Self {
-        Self {
-            kind,
-            line,
-        }
+    pub fn new(kind: TokenKind<'a>, line: usize, start: usize) -> Self {
+        Self { kind, start, line }
     }
-    pub fn kind(&self) -> &TokenKind<'a>{
+    pub fn kind(&self) -> &TokenKind<'a> {
         &self.kind
     }
-    pub fn line(&self) -> usize{
+    pub fn line(&self) -> usize {
         self.line
     }
+    pub fn start(&self) -> usize {
+        self.start
+    }
+
+    pub fn len(&self) -> usize {
+        match self.kind {
+            TokenKind::Identifier(s) | TokenKind::String(s) => s.len(),
+            TokenKind::Number(_, len) => len as usize,
+            TokenKind::Eof => 0,
+            TokenKind::LeftParen
+            | TokenKind::RightParen
+            | TokenKind::LeftBrace
+            | TokenKind::RightBrace
+            | TokenKind::Comma
+            | TokenKind::Dot
+            | TokenKind::Minus
+            | TokenKind::Plus
+            | TokenKind::Semicolon
+            | TokenKind::Slash
+            | TokenKind::Star
+            | TokenKind::Bang
+            | TokenKind::Equal
+            | TokenKind::Greater
+            | TokenKind::Less
+            | TokenKind::Comma => 1,
+            TokenKind::Or
+            | TokenKind::If
+            | TokenKind::BangEqual
+            | TokenKind::GreaterEqual
+            | TokenKind::LessEqual
+            | TokenKind::EqualEqual => 2,
+            TokenKind::And | TokenKind::For | TokenKind::Nil | TokenKind::Fun | TokenKind::Var => 3,
+            TokenKind::True | TokenKind::This | TokenKind::Else => 4,
+            TokenKind::False | TokenKind::Super | TokenKind::While | TokenKind::Class => 5,
+
+            TokenKind::Print | TokenKind::Return => 6,
+        }
+    }
+
 }

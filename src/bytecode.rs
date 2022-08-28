@@ -18,6 +18,39 @@ pub struct Chunk{
 
 pub type Value = f64;
 
+#[repr(u8)]
+// Higher precedence means that it will be evaluated first.
+pub enum Precedence{
+    None,
+    Assignment,
+    Or,
+    And,
+    Equality,
+    Comparison,
+    Term,
+    Factor,
+    Unary,
+    Call,
+    Primary,
+}
+
+impl Precedence{
+    pub fn higher(&self) -> Self{
+        match self{
+            Precedence::None => Precedence::Assignment,
+            Precedence::Assignment => Precedence::Or,
+            Precedence::Or => Precedence::And,
+            Precedence::And => Precedence::Equality,
+            Precedence::Equality => Precedence::Comparison,
+            Precedence::Comparison => Precedence::Term,
+            Precedence::Term => Precedence::Factor,
+            Precedence::Factor => Precedence::Unary,
+            Precedence::Unary => Precedence::Call,
+            Precedence::Call | Precedence::Primary => Precedence::Primary,
+        }
+    }
+}
+
 
 impl Chunk{
     pub fn new() -> Chunk{
