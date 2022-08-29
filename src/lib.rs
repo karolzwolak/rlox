@@ -33,5 +33,8 @@ pub fn run_file(path: String) -> Result<()> {
 }
 
 fn interpret(source: String) -> Result<()> {
-    Ok(())
+    let compiler = compiler::Compiler::new(&source);
+    let chunk = compiler.compile()?;
+    let mut vm = vm::VM::with_chunk(&chunk);
+    vm.run()
 }

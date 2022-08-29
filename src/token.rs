@@ -2,6 +2,9 @@ use crate::bytecode::Precedence;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TokenKind<'a> {
+    Eof,
+    None,
+
     // Single-character tokens.
     LeftParen,
     RightParen,
@@ -47,19 +50,18 @@ pub enum TokenKind<'a> {
     True,
     Var,
     While,
-
-    Eof,
 }
 impl<'a> TokenKind<'a>{
     pub fn precedence(&self) -> Precedence {
         match self {
             TokenKind::Slash | TokenKind::Star => Precedence::Factor,
-            TokenKind::Bang | TokenKind::Minus => Precedence::Unary,
+            TokenKind::Bang => Precedence::Unary,
             TokenKind::Equal | TokenKind::BangEqual | TokenKind::Greater | TokenKind::Less | TokenKind::GreaterEqual | TokenKind::LessEqual => Precedence::Equality,
             TokenKind::Plus | TokenKind::Minus => Precedence::Term,
             _ => Precedence::None,
         }
     }
+
 }
 
 pub struct Token<'a> {
@@ -71,6 +73,10 @@ pub struct Token<'a> {
 impl<'a> Token<'a> {
     pub fn new(kind: TokenKind<'a>, line: usize, start: usize) -> Self {
         Self { kind, start, line }
+    }
+
+    pub fn none() -> Self {
+        Self::new(TokenKind::None, 0, 0)
     }
     pub fn kind(&self) -> &TokenKind<'a> {
         &self.kind
@@ -86,7 +92,7 @@ impl<'a> Token<'a> {
         match self.kind {
             TokenKind::Identifier(s) | TokenKind::String(s) => s.len(),
             TokenKind::Number(_, len) => len as usize,
-            TokenKind::Eof => 0,
+            TokenKind::Eof | TokenKind::None => 0,
             TokenKind::LeftParen
             | TokenKind::RightParen
             | TokenKind::LeftBrace
@@ -102,7 +108,7 @@ impl<'a> Token<'a> {
             | TokenKind::Equal
             | TokenKind::Greater
             | TokenKind::Less
-            | TokenKind::Comma => 1,
+             => 1,
             TokenKind::Or
             | TokenKind::If
             | TokenKind::BangEqual

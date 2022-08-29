@@ -13,7 +13,7 @@ impl<'a> Scanner<'a> {
     pub fn new(source: &'a str) -> Self {
         Self {
             source,
-            byte_iter: source.as_bytes().into_iter().peekable(),
+            byte_iter: source.as_bytes().iter().peekable(),
             start: 0,
             current: 0,
             line: 1,
@@ -94,13 +94,13 @@ impl<'a> Scanner<'a> {
     }
 
     pub fn scan_token(&mut self) -> Result<Token<'a>> {
-        self.skip_whitespace();
+        self.skip_whitespace()?;
         self.start = self.current;
 
         if let Some(ch) = self.advance() {
             Ok(match ch {
-                b'(' => self.make_token(TokenKind::RightParen),
-                b')' => self.make_token(TokenKind::LeftParen),
+                b'(' => self.make_token(TokenKind::LeftParen),
+                b')' => self.make_token(TokenKind::RightParen),
                 b'{' => self.make_token(TokenKind::LeftBrace),
                 b'}' => self.make_token(TokenKind::RightBrace),
                 b',' => self.make_token(TokenKind::Comma),
