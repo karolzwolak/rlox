@@ -11,6 +11,10 @@ pub enum OpCode {
     Multiply,
     Divide,
 
+    Less,
+    Greater,
+    Equal,
+
     True,
     False,
     Nil,
@@ -151,6 +155,11 @@ impl OpCode {
             OpCode::Subtract => "OP_SUBTRACT".to_string(),
             OpCode::Multiply => "OP_MULTIPLY".to_string(),
             OpCode::Divide => "OP_DIVIDE".to_string(),
+
+            OpCode::Greater => "OP_GREATER".to_string(),
+            OpCode::Less => "OP_LESS".to_string(),
+            OpCode::Equal => "OP_EQUAL".to_string(),
+            
 
             OpCode::True => "OP_TRUE".to_string(),
             OpCode::False => "OP_FALSE".to_string(),

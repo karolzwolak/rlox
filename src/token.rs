@@ -51,17 +51,21 @@ pub enum TokenKind<'a> {
     Var,
     While,
 }
-impl<'a> TokenKind<'a>{
+impl<'a> TokenKind<'a> {
     pub fn precedence(&self) -> Precedence {
         match self {
             TokenKind::Slash | TokenKind::Star => Precedence::Factor,
             TokenKind::Bang => Precedence::Unary,
-            TokenKind::Equal | TokenKind::BangEqual | TokenKind::Greater | TokenKind::Less | TokenKind::GreaterEqual | TokenKind::LessEqual => Precedence::Equality,
+            TokenKind::EqualEqual | TokenKind::BangEqual => Precedence::Equality,
+            TokenKind::Greater
+            | TokenKind::Less
+            | TokenKind::GreaterEqual
+            | TokenKind::LessEqual => Precedence::Comparison,
             TokenKind::Plus | TokenKind::Minus => Precedence::Term,
+            TokenKind::Equal => Precedence::Assignment,
             _ => Precedence::None,
         }
     }
-
 }
 
 pub struct Token<'a> {
@@ -107,8 +111,7 @@ impl<'a> Token<'a> {
             | TokenKind::Bang
             | TokenKind::Equal
             | TokenKind::Greater
-            | TokenKind::Less
-             => 1,
+            | TokenKind::Less => 1,
             TokenKind::Or
             | TokenKind::If
             | TokenKind::BangEqual
@@ -122,5 +125,4 @@ impl<'a> Token<'a> {
             TokenKind::Print | TokenKind::Return => 6,
         }
     }
-
 }

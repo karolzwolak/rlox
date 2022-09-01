@@ -1,7 +1,7 @@
 use std::mem;
 
 use crate::{
-    bytecode::{self, Precedence, OpCode, Value},
+    bytecode::{self, OpCode, Precedence, Value},
     scanner::Scanner,
     token::{self, Token, TokenKind},
     Error, Result,
@@ -148,8 +148,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn unary(&mut self) -> Result<()> {
+        let op = *self.previous.kind();
         self.parse_precedence(Precedence::Unary)?;
-        self.write_ins(match self.previous.kind() {
+        self.write_ins(match op {
             TokenKind::Bang => OpCode::Not,
             TokenKind::Minus => OpCode::Negate,
             _ => unreachable!(),
@@ -174,16 +175,33 @@ impl<'a> Compiler<'a> {
         let precedence = operator.precedence();
         self.parse_precedence(precedence.higher())?;
 
-        match operator{
-            TokenKind::Plus => self.write_ins(bytecode::OpCode::Add),
-            TokenKind::Minus => self.write_ins(bytecode::OpCode::Subtract),
-            TokenKind::Star => self.write_ins(bytecode::OpCode::Multiply),
-            TokenKind::Slash => self.write_ins(bytecode::OpCode::Divide),
-            _ => todo!(),
+        match operator {
+            TokenKind::Plus => self.write_ins(OpCode::Add),
+            TokenKind::Minus => self.write_ins(OpCode::Subtract),
+            TokenKind::Star => self.write_ins(OpCode::Multiply),
+            TokenKind::Slash => self.write_ins(OpCode::Divide),
+            TokenKind::BangEqual => {
+                self.write_ins(OpCode::Equal);
+                self.write_ins(OpCode::Not);
+            }
+            TokenKind::EqualEqual => self.write_ins(OpCode::Equal),
+            TokenKind::Less => self.write_ins(OpCode::Less),
+            TokenKind::LessEqual => {
+                self.write_ins(OpCode::Greater);
+                self.write_ins(OpCode::Not);
+            }
+
+            TokenKind::Greater => self.write_ins(OpCode::Greater),
+            TokenKind::GreaterEqual => {
+                self.write_ins(OpCode::Less);
+                self.write_ins(OpCode::Not);
+            }
+
+            _ => unreachable!(),
         }
         Ok(())
     }
-    
+
     fn literal(&mut self) {
         match self.previous.kind() {
             TokenKind::True => self.write_ins(OpCode::True),
@@ -209,19 +227,28 @@ impl<'a> Compiler<'a> {
                 self.number();
                 Ok(())
             }
-            TokenKind::Minus => self.unary(),
-            TokenKind::True | TokenKind::False | TokenKind::Nil => {self.literal(); Ok(())}
+            TokenKind::Minus | TokenKind::Bang => self.unary(),
+            TokenKind::True | TokenKind::False | TokenKind::Nil => {
+                self.literal();
+                Ok(())
+            }
 
             _ => unimplemented!("Unimplemented prefix for {:?}", kind),
         }
     }
 
-
     fn infix(&mut self, kind: TokenKind) -> Result<()> {
         match kind {
-            TokenKind::Minus | TokenKind::Plus | TokenKind::Slash | TokenKind::Star => {
-                self.binary()
-            }
+            TokenKind::Minus
+            | TokenKind::Plus
+            | TokenKind::Slash
+            | TokenKind::Star
+            | TokenKind::EqualEqual
+            | TokenKind::Bang
+            | TokenKind::Greater
+            | TokenKind::GreaterEqual
+            | TokenKind::Less
+            | TokenKind::LessEqual => self.binary(),
 
             _ => Err(self.error_at_previous("Expected expression")),
         }

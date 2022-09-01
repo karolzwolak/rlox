@@ -175,40 +175,40 @@ impl<'a> Scanner<'a> {
             self.advance();
         }
         self.make_token(match bytes[self.start] {
-            b'a' => self.check_keyword(1, 2, "nd", TokenKind::And),
-            b'c' => self.check_keyword(1, 4, "lass", TokenKind::Class),
-            b'e' => self.check_keyword(1, 3, "lse", TokenKind::Else),
+            b'a' => self.check_keyword(1, "nd", TokenKind::And),
+            b'c' => self.check_keyword(1, "lass", TokenKind::Class),
+            b'e' => self.check_keyword(1, "lse", TokenKind::Else),
             b'f' => {
                 if self.current - self.start > 1 {
                     match bytes[self.start + 1] {
-                        b'a' => self.check_keyword(2, 3, "lse", TokenKind::False),
-                        b'o' => self.check_keyword(2, 1, "r", TokenKind::For),
-                        b'u' => self.check_keyword(2, 1, "n", TokenKind::Fun),
+                        b'a' => self.check_keyword(2, "lse", TokenKind::False),
+                        b'o' => self.check_keyword(2, "r", TokenKind::For),
+                        b'u' => self.check_keyword(2, "n", TokenKind::Fun),
                         _ => self.get_identifier(),
                     }
                 } else {
                     self.get_identifier()
                 }
             }
-            b'i' => self.check_keyword(1, 1, "f", TokenKind::If),
-            b'n' => self.check_keyword(1, 2, "il", TokenKind::Nil),
-            b'o' => self.check_keyword(1, 1, "r", TokenKind::Or),
-            b'p' => self.check_keyword(1, 4, "rint", TokenKind::Print),
-            b'r' => self.check_keyword(1, 5, "eturn", TokenKind::Return),
-            b's' => self.check_keyword(1, 4, "uper", TokenKind::Super),
+            b'i' => self.check_keyword(1, "f", TokenKind::If),
+            b'n' => self.check_keyword(1, "il", TokenKind::Nil),
+            b'o' => self.check_keyword(1, "r", TokenKind::Or),
+            b'p' => self.check_keyword(1, "rint", TokenKind::Print),
+            b'r' => self.check_keyword(1, "eturn", TokenKind::Return),
+            b's' => self.check_keyword(1, "uper", TokenKind::Super),
             b't' => {
                 if self.current - self.start > 1 {
                     match bytes[self.start + 1] {
-                        b'h' => self.check_keyword(2, 2, "is", TokenKind::This),
-                        b'r' => self.check_keyword(2, 2, "ue", TokenKind::True),
+                        b'h' => self.check_keyword(2, "is", TokenKind::This),
+                        b'r' => self.check_keyword(2, "ue", TokenKind::True),
                         _ => self.get_identifier(),
                     }
                 } else {
                     self.get_identifier()
                 }
             }
-            b'v' => self.check_keyword(1, 2, "ar", TokenKind::Var),
-            b'w' => self.check_keyword(1, 4, "hile", TokenKind::While),
+            b'v' => self.check_keyword(1, "ar", TokenKind::Var),
+            b'w' => self.check_keyword(1, "hile", TokenKind::While),
             _ => self.get_identifier(),
         })
     }
@@ -217,16 +217,10 @@ impl<'a> Scanner<'a> {
         TokenKind::Identifier(&self.source[self.start..self.current])
     }
 
-    fn check_keyword(
-        &self,
-        start: usize,
-        len: usize,
-        rest: &str,
-        kind: TokenKind<'a>,
-    ) -> TokenKind<'a> {
+    fn check_keyword(&self, start: usize, rest: &str, kind: TokenKind<'a>) -> TokenKind<'a> {
         let lexeme_start = self.start + start;
-        if self.current - self.start == start + len
-            && &self.source[lexeme_start..lexeme_start - len] == rest
+        if self.current - self.start == start + rest.len()
+            && &self.source[lexeme_start..lexeme_start + rest.len()] == rest
         {
             kind
         } else {

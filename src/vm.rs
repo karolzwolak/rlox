@@ -37,7 +37,10 @@ impl<'a> VM<'a> {
 
                 OpCode::Negate => self.negate()?,
                 OpCode::Not => self.not()?,
-                
+
+                op @ (OpCode::Greater | OpCode::Less) => self.comparison(op)?,
+                OpCode::Equal => self.equality(),
+
                 OpCode::Add => self.add()?,
                 op @ (OpCode::Subtract | OpCode::Multiply | OpCode::Divide) => self.binary(op)?,
 
@@ -110,11 +113,22 @@ impl<'a> VM<'a> {
         self.stack.get(self.stack.len() - 1 - offset)
     }
 
+    fn peek_stack_unwrapped(&self, offset: usize) -> &Value {
+        if let Some(v) = self.peek_stack(offset) {
+            v
+        } else {
+            self.internal_error(&format!(
+                "Expected value at stack at index {} but found no value",
+                self.stack.len() - 1 - offset
+            ))
+        }
+    }
+
     // fn peek_stack_mut(&mut self, offset: usize) -> Option<&mut Value> {
     //     self.stack.get_mut(self.stack.len() - 1 - offset)
     // }
 
-    fn peek_number(&mut self, offset: usize) -> Result<&f64> {
+    fn peek_number(&self, offset: usize) -> Result<&f64> {
         match self.peek_stack(offset) {
             None => self.internal_error(&format!(
                 "Expected value at stack at index {} but found no value",
@@ -140,6 +154,30 @@ impl<'a> VM<'a> {
             _ => unreachable!(),
         }));
         Ok(())
+    }
+
+    fn comparison(&mut self, operator: &OpCode) -> Result<()> {
+        let b = self.pop_number()?;
+        let a = self.pop_number()?;
+        self.push_stack(Value::Boolean(match operator {
+            OpCode::Greater => a > b,
+            OpCode::Less => a < b,
+            _ => unreachable!(),
+        }));
+        Ok(())
+    }
+
+    fn equality(&mut self) {
+        let b = self.pop_stack();
+        let a = self.pop_stack();
+
+        self.push_stack(Value::Boolean(match (a, b) {
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
+            _ => false,
+        }))
     }
 
     fn runtime_error(&self, msg: &str) -> Error {
