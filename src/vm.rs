@@ -31,9 +31,16 @@ impl<'a> VM<'a> {
             let ins = self.advance();
             match ins {
                 OpCode::Constant(index) => self.add_const(*index),
+                OpCode::True => self.push_stack(Value::Boolean(true)),
+                OpCode::False => self.push_stack(Value::Boolean(false)),
+                OpCode::Nil => self.push_stack(Value::Nil),
+
                 OpCode::Negate => self.negate()?,
+                OpCode::Not => self.not()?,
+                
                 OpCode::Add => self.add()?,
                 op @ (OpCode::Subtract | OpCode::Multiply | OpCode::Divide) => self.binary(op)?,
+
                 OpCode::Return => {
                     println!("{:?}", self.stack.pop().unwrap());
                     break;
@@ -55,9 +62,17 @@ impl<'a> VM<'a> {
     fn negate(&mut self) -> Result<()> {
         match self.pop_stack() {
             Value::Number(n) => self.push_stack(Value::Number(-n)),
-            Value::Boolean(b) => self.push_stack(Value::Boolean(!b)),
             v => return Err(self.runtime_error(&format!("Cannot negate {v}"))),
         };
+        Ok(())
+    }
+
+    fn not(&mut self) -> Result<()> {
+        match self.pop_stack() {
+            Value::Boolean(b) => self.push_stack(Value::Boolean(!b)),
+            Value::Nil => self.push_stack(Value::Boolean(true)),
+            v => return Err(self.runtime_error(&format!("Cannot perform '!' operation on {v}"))),
+        }
         Ok(())
     }
 

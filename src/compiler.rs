@@ -149,7 +149,11 @@ impl<'a> Compiler<'a> {
 
     fn unary(&mut self) -> Result<()> {
         self.parse_precedence(Precedence::Unary)?;
-        self.write_ins(bytecode::OpCode::Negate);
+        self.write_ins(match self.previous.kind() {
+            TokenKind::Bang => OpCode::Not,
+            TokenKind::Minus => OpCode::Negate,
+            _ => unreachable!(),
+        });
         Ok(())
     }
 
@@ -179,6 +183,15 @@ impl<'a> Compiler<'a> {
         }
         Ok(())
     }
+    
+    fn literal(&mut self) {
+        match self.previous.kind() {
+            TokenKind::True => self.write_ins(OpCode::True),
+            TokenKind::False => self.write_ins(OpCode::False),
+            TokenKind::Nil => self.write_ins(OpCode::Nil),
+            _ => unreachable!(),
+        }
+    }
 
     fn _trace(&mut self, token: &token::Token, prev_line: usize) {
         if token.line() != prev_line {
@@ -197,10 +210,12 @@ impl<'a> Compiler<'a> {
                 Ok(())
             }
             TokenKind::Minus => self.unary(),
+            TokenKind::True | TokenKind::False | TokenKind::Nil => {self.literal(); Ok(())}
 
             _ => unimplemented!("Unimplemented prefix for {:?}", kind),
         }
     }
+
 
     fn infix(&mut self, kind: TokenKind) -> Result<()> {
         match kind {

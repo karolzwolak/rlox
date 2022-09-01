@@ -5,10 +5,15 @@ pub enum OpCode {
     Constant(u16),
     Return,
     Negate,
+    Not,
     Add,
     Subtract,
     Multiply,
     Divide,
+
+    True,
+    False,
+    Nil,
 }
 pub struct Chunk {
     code: Vec<OpCode>,
@@ -141,10 +146,15 @@ impl OpCode {
             }
             OpCode::Return => "OP_RETURN".to_string(),
             OpCode::Negate => "OP_NEGATE".to_string(),
+            OpCode::Not => "OP_NOT".to_string(),
             OpCode::Add => "OP_ADD".to_string(),
             OpCode::Subtract => "OP_SUBTRACT".to_string(),
             OpCode::Multiply => "OP_MULTIPLY".to_string(),
             OpCode::Divide => "OP_DIVIDE".to_string(),
+
+            OpCode::True => "OP_TRUE".to_string(),
+            OpCode::False => "OP_FALSE".to_string(),
+            OpCode::Nil => "OP_NIL".to_string(),
         }
     }
 }
