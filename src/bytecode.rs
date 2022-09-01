@@ -16,9 +16,25 @@ pub struct Chunk {
     lines: Vec<usize>,
 }
 
-pub type Value = f64;
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Value {
+    Number(f64),
+    String(String),
+    Boolean(bool),
+    Nil,
+}
 
-#[repr(u8)]
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Number(n) => writeln!(f, "Number({})", n),
+            Value::String(s) => writeln!(f, "String({})", s),
+            Value::Boolean(b) => writeln!(f, "Boolean({})", b),
+            Value::Nil => writeln!(f, "Nil"),
+        }
+    }
+}
+
 #[derive(PartialEq, PartialOrd, Ord, Eq, Clone, Copy)]
 // Higher precedence means that it will be evaluated first.
 pub enum Precedence {
@@ -66,14 +82,14 @@ impl Chunk {
     }
     pub fn add_const(&mut self, value: Value) -> u16 {
         self.constants.push(value);
-        self.constants.len() as u16 - 1
+        (self.constants.len() - 1) as u16
     }
     pub fn add_const_ins(&mut self, value: Value, line: usize) {
         let constant = self.add_const(value);
         self.write_ins(OpCode::Constant(constant), line);
     }
-    pub fn get_const(&self, index: u16) -> Value {
-        self.constants[index as usize]
+    pub fn get_const(&self, index: u16) -> &Value {
+        &self.constants[index as usize]
     }
 
     pub fn code(&self) -> &[OpCode] {
@@ -117,7 +133,11 @@ impl OpCode {
     pub fn dissassemble(&self, chunk: &Chunk) -> String {
         match self {
             OpCode::Constant(index) => {
-                format!("OP_CONSTANT<#{:04}, '{}'>", index, chunk.get_const(*index))
+                format!(
+                    "OP_CONSTANT<#{:04}, '{:?}'>",
+                    index,
+                    chunk.get_const(*index)
+                )
             }
             OpCode::Return => "OP_RETURN".to_string(),
             OpCode::Negate => "OP_NEGATE".to_string(),

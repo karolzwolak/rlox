@@ -1,7 +1,7 @@
 use std::mem;
 
 use crate::{
-    bytecode::{self, Precedence, OpCode},
+    bytecode::{self, Precedence, OpCode, Value},
     scanner::Scanner,
     token::{self, Token, TokenKind},
     Error, Result,
@@ -29,7 +29,7 @@ impl<'a> Compiler<'a> {
         self.chunk.write_ins(ins, self.previous.line());
     }
 
-    fn write_constant(&mut self, value: f64) {
+    fn write_constant(&mut self, value: Value) {
         self.chunk.add_const_ins(value, self.previous.line());
     }
 
@@ -136,7 +136,7 @@ impl<'a> Compiler<'a> {
 
     fn number(&mut self) {
         if let &TokenKind::Number(val, _) = self.previous.kind() {
-            self.write_constant(val);
+            self.write_constant(Value::Number(val));
         } else {
             unreachable!();
         }
