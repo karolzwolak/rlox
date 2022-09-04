@@ -1,3 +1,5 @@
+use core::fmt;
+
 use crate::bytecode::Precedence;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -31,7 +33,7 @@ pub enum TokenKind<'a> {
     // Literals.
     Identifier(&'a str),
     String(&'a str),
-    Number(f64, u8),
+    Number(f64),
 
     // Keywords.
     And,
@@ -68,6 +70,61 @@ impl<'a> TokenKind<'a> {
     }
 }
 
+impl<'a> fmt::Display for TokenKind<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s;
+        write!(
+            f,
+            "{}",
+            match self {
+                TokenKind::Eof => "<EOF>",
+                TokenKind::None => "<NONE>",
+                TokenKind::LeftParen => "(",
+                TokenKind::RightParen => ")",
+                TokenKind::LeftBrace => "{",
+                TokenKind::RightBrace => "}",
+                TokenKind::Comma => ",",
+                TokenKind::Dot => ".",
+                TokenKind::Minus => "-",
+                TokenKind::Plus => "+",
+                TokenKind::Semicolon => ";",
+                TokenKind::Slash => "/",
+                TokenKind::Star => "*",
+                TokenKind::Bang => "!",
+                TokenKind::BangEqual => "!=",
+                TokenKind::Equal => "=",
+                TokenKind::EqualEqual => "==",
+                TokenKind::Greater => ">",
+                TokenKind::GreaterEqual => ">=",
+                TokenKind::Less => "<",
+                TokenKind::LessEqual => "<=",
+                TokenKind::Identifier(s) => s,
+                TokenKind::String(s) => s,
+                TokenKind::Number(n) => {
+                    s = n.to_string();
+                    &s
+                }
+                TokenKind::And => "and",
+                TokenKind::Class => "class",
+                TokenKind::Else => "else",
+                TokenKind::False => "false",
+                TokenKind::Fun => "fun",
+                TokenKind::For => "for",
+                TokenKind::If => "if",
+                TokenKind::Nil => "nil",
+                TokenKind::Or => "or",
+                TokenKind::Print => "print",
+                TokenKind::Return => "return",
+                TokenKind::Super => "super",
+                TokenKind::This => "this",
+                TokenKind::True => "true",
+                TokenKind::Var => "var",
+                TokenKind::While => "while",
+            }
+        )
+    }
+}
+
 pub struct Token<'a> {
     kind: TokenKind<'a>,
     line: usize,
@@ -92,37 +149,4 @@ impl<'a> Token<'a> {
         self.start
     }
 
-    pub fn len(&self) -> usize {
-        match self.kind {
-            TokenKind::Identifier(s) | TokenKind::String(s) => s.len(),
-            TokenKind::Number(_, len) => len as usize,
-            TokenKind::Eof | TokenKind::None => 0,
-            TokenKind::LeftParen
-            | TokenKind::RightParen
-            | TokenKind::LeftBrace
-            | TokenKind::RightBrace
-            | TokenKind::Comma
-            | TokenKind::Dot
-            | TokenKind::Minus
-            | TokenKind::Plus
-            | TokenKind::Semicolon
-            | TokenKind::Slash
-            | TokenKind::Star
-            | TokenKind::Bang
-            | TokenKind::Equal
-            | TokenKind::Greater
-            | TokenKind::Less => 1,
-            TokenKind::Or
-            | TokenKind::If
-            | TokenKind::BangEqual
-            | TokenKind::GreaterEqual
-            | TokenKind::LessEqual
-            | TokenKind::EqualEqual => 2,
-            TokenKind::And | TokenKind::For | TokenKind::Nil | TokenKind::Fun | TokenKind::Var => 3,
-            TokenKind::True | TokenKind::This | TokenKind::Else => 4,
-            TokenKind::False | TokenKind::Super | TokenKind::While | TokenKind::Class => 5,
-
-            TokenKind::Print | TokenKind::Return => 6,
-        }
-    }
 }

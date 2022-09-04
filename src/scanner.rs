@@ -88,8 +88,8 @@ impl<'a> Scanner<'a> {
 
     fn error(&self, msg: &str) -> Error {
         Error::from(format!(
-            "error: {} at line {}, column {}-{}",
-            msg, self.line, self.start, self.current
+            "error: {} at line {}, column {}-{} ('{}')",
+            msg, self.line, self.start, self.current - 1, &self.source[self.start..self.current] 
         ))
     }
 
@@ -138,7 +138,7 @@ impl<'a> Scanner<'a> {
                 Some(b'\n') => {
                     self.line += 1;
                 }
-                None => {
+                Some(b'\0') | None => {
                     return Err(self.error("Unterminated string."));
                 }
 
@@ -147,7 +147,7 @@ impl<'a> Scanner<'a> {
             self.advance();
         }
         Ok(self.make_token(TokenKind::String(
-            &self.source[self.start + 1..self.current],
+            &self.source[self.start + 1..self.current - 1],
         )))
     }
 
@@ -165,7 +165,6 @@ impl<'a> Scanner<'a> {
 
         Ok(self.make_token(TokenKind::Number(
             self.source[self.start..self.current].parse().unwrap(),
-            (self.current - self.start) as u8,
         )))
     }
 

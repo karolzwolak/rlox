@@ -1,3 +1,5 @@
+use std::{collections::HashMap, rc::Rc};
+
 use crate::{
     bytecode::{self, OpCode, Value},
     Error, Result,
@@ -6,6 +8,7 @@ pub struct VM<'a> {
     chunk: &'a bytecode::Chunk,
     ip: usize,
     stack: Vec<bytecode::Value>,
+    globals: HashMap<&'a str, Value>,
 }
 
 impl<'a> VM<'a> {
@@ -15,6 +18,7 @@ impl<'a> VM<'a> {
             chunk,
             ip: 0,
             stack: Vec::with_capacity(Self::STACK_MAX),
+            globals: HashMap::new(),
         }
     }
 
@@ -31,6 +35,14 @@ impl<'a> VM<'a> {
             let ins = self.advance();
             match ins {
                 OpCode::Constant(index) => self.add_const(*index),
+                OpCode::Print => self.print(),
+                OpCode::Pop => {
+                    self.pop_stack();
+                }
+                OpCode::DefineGlobal(index) => self.define_global(*index),
+                OpCode::GetGlobal(index) => self.get_global(*index)?,
+                OpCode::SetGlobal(index) => self.set_global(*index)?,
+
                 OpCode::True => self.push_stack(Value::Boolean(true)),
                 OpCode::False => self.push_stack(Value::Boolean(false)),
                 OpCode::Nil => self.push_stack(Value::Nil),
@@ -44,13 +56,53 @@ impl<'a> VM<'a> {
                 OpCode::Add => self.add()?,
                 op @ (OpCode::Subtract | OpCode::Multiply | OpCode::Divide) => self.binary(op)?,
 
-                OpCode::Return => {
-                    println!("{:?}", self.stack.pop().unwrap());
-                    break;
-                }
+                OpCode::Return => break,
             }
         }
         Ok(())
+    }
+
+    fn define_global(&mut self, index: u16) {
+        if let Value::String(s) = self.chunk.get_const(index) {
+            let val = self.pop_stack();
+            self.globals.insert(s.as_str(), val);
+        } else {
+            panic!("define global: expected string")
+        }
+    }
+
+    fn get_global(&mut self, index: u16) -> Result<()> {
+        if let Value::String(s) = self.chunk.get_const(index) {
+            let ident = s.as_str();
+            let val = self
+                .globals
+                .get(ident)
+                .ok_or_else(|| self.runtime_error(&format!("Undefined global variable '{ident}'")))?;
+            let val = val.clone();
+            self.push_stack(val);
+            Ok(())
+        } else {
+            self.internal_error("get global: expected string")
+        }
+    }
+
+    fn set_global(&mut self, index: u16) -> Result<()> {
+        if let Value::String(s) = self.chunk.get_const(index) {
+            let ident = s.as_str();
+            let val = self.pop_stack();
+            if self.globals.contains_key(ident) {
+                self.globals.insert(ident, val);
+                Ok(())
+            } else {
+                Err(self.runtime_error(&format!("Undefined global variable '{ident}'")))
+            }
+        } else {
+            self.internal_error("set global: expected string")
+        }
+    }
+
+    fn print(&mut self) {
+        println!("{}", self.pop_stack())
     }
 
     fn add_const(&mut self, id: u16) {
@@ -87,7 +139,7 @@ impl<'a> VM<'a> {
                 self.stack.push(Value::Number(a + b));
             }
             (Value::String(s1), Value::String(s2)) => {
-                self.stack.push(Value::String(format!("{s1}{s2}")));
+                self.stack.push(Value::String(Rc::new(format!("{s1}{s2}"))));
             }
             (a, b) => return Err(self.runtime_error(&format!("Cannot add {a} and {b}"))),
         };
@@ -171,13 +223,7 @@ impl<'a> VM<'a> {
         let b = self.pop_stack();
         let a = self.pop_stack();
 
-        self.push_stack(Value::Boolean(match (a, b) {
-            (Value::Number(a), Value::Number(b)) => a == b,
-            (Value::Boolean(a), Value::Boolean(b)) => a == b,
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::Nil, Value::Nil) => true,
-            _ => false,
-        }))
+        self.push_stack(Value::Boolean(a == b))
     }
 
     fn runtime_error(&self, msg: &str) -> Error {

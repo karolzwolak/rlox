@@ -1,9 +1,15 @@
-use std::fmt;
+use std::{fmt, rc::Rc};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OpCode {
     Constant(u16),
     Return,
+    Print,
+    Pop,
+    DefineGlobal(u16),
+    GetGlobal(u16),
+    SetGlobal(u16),
+
     Negate,
     Not,
     Add,
@@ -25,10 +31,10 @@ pub struct Chunk {
     lines: Vec<usize>,
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, PartialOrd)]
 pub enum Value {
     Number(f64),
-    String(String),
+    String(Rc<String>),
     Boolean(bool),
     Nil,
 }
@@ -36,10 +42,33 @@ pub enum Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Number(n) => writeln!(f, "Number({})", n),
-            Value::String(s) => writeln!(f, "String({})", s),
-            Value::Boolean(b) => writeln!(f, "Boolean({})", b),
-            Value::Nil => writeln!(f, "Nil"),
+            Value::Number(n) => write!(f, "{}", n),
+            Value::String(s) => write!(f, "{}", s),
+            Value::Boolean(b) => write!(f, "{}", b),
+            Value::Nil => write!(f, "<Nil>"),
+        }
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Boolean(a), Value::Boolean(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Clone for Value {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Number(n) => Self::Number(*n),
+            Self::String(s) => Self::String(Rc::clone(s)),
+            Self::Boolean(b) => Self::Boolean(*b),
+            Self::Nil => Self::Nil,
         }
     }
 }
@@ -149,6 +178,12 @@ impl OpCode {
                 )
             }
             OpCode::Return => "OP_RETURN".to_string(),
+            OpCode::Print => "OP_PRINT".to_string(),
+            OpCode::Pop => "OP_POP".to_string(),
+            OpCode::DefineGlobal(index) => format!("OP_DEFINE_GLOBAL<#{:04}>", index),
+            OpCode::GetGlobal(index) => format!("OP_GET_GLOBAL<#{:04}>", index),
+            OpCode::SetGlobal(index) => format!("OP_SET_GLOBAL<#{:04}>", index),
+
             OpCode::Negate => "OP_NEGATE".to_string(),
             OpCode::Not => "OP_NOT".to_string(),
             OpCode::Add => "OP_ADD".to_string(),
@@ -159,7 +194,6 @@ impl OpCode {
             OpCode::Greater => "OP_GREATER".to_string(),
             OpCode::Less => "OP_LESS".to_string(),
             OpCode::Equal => "OP_EQUAL".to_string(),
-            
 
             OpCode::True => "OP_TRUE".to_string(),
             OpCode::False => "OP_FALSE".to_string(),
