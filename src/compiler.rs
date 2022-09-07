@@ -21,14 +21,32 @@ declaration    → classDecl
                | varDecl
                | statement ;
 
+block          → "{" declaration* "}" ;
+
 */
+
+struct Local<'a> {
+    name: &'a str,
+    depth: Option<u32>,
+}
+
+impl<'a> Local<'a> {
+    fn new(name: &'a str, depth: Option<u32>) -> Self {
+        Self { name, depth }
+    }
+}
 
 pub struct Compiler<'a> {
     scanner: Scanner<'a>,
     error_count: usize,
+
     current: Token<'a>,
     previous: Token<'a>,
+
     chunk: bytecode::Chunk,
+
+    locals: Vec<Local<'a>>,
+    scope_depth: u32,
 }
 
 impl<'a> Compiler<'a> {
@@ -38,7 +56,9 @@ impl<'a> Compiler<'a> {
             current: Token::none(),
             previous: Token::none(),
             error_count: 0,
+            scope_depth: 0,
             chunk: bytecode::Chunk::new(),
+            locals: Vec::with_capacity(256),
         }
     }
     fn write_ins(&mut self, ins: bytecode::OpCode) {
@@ -117,6 +137,7 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) -> Result<()> {
         match self.current.kind() {
             TokenKind::Print => self.print_stmt(),
+            TokenKind::LeftBrace => self.block(),
             _ => self.expression_stmt(),
         }
     }
@@ -126,11 +147,35 @@ impl<'a> Compiler<'a> {
         self.add_const(ident)
     }
 
+    fn block(&mut self) -> Result<()> {
+        self.advance()?;
+        self.scope_depth += 1;
+
+        while !self.check_curr(&TokenKind::RightBrace) && !self.is_at_end() {
+            self.declaration();
+        }
+
+        self.end_scope();
+        self.consume(TokenKind::RightBrace, "Expect '}' after block.")?;
+        Ok(())
+    }
+
+    fn end_scope(&mut self) {
+        self.scope_depth -= 1;
+        // discard all locals that are in this scope
+        while !self.locals.is_empty()
+            && self.locals.last().unwrap().depth.unwrap() > self.scope_depth
+        {
+            self.write_ins(OpCode::Pop);
+            self.locals.pop();
+        }
+    }
+
     fn var_decl(&mut self) -> Result<()> {
         self.advance()?;
-        let name = self.consume_ident("Expect variable name.")?;
-        let id = self.write_ident_constant(name);
-        if let Ok(true) = self.match_curr(&TokenKind::Equal) {
+        let id = self.declare_variable()?;
+
+        if self.match_curr(&TokenKind::Equal)? {
             self.expression()?;
         } else {
             self.write_ins(OpCode::Nil);
@@ -140,19 +185,85 @@ impl<'a> Compiler<'a> {
             TokenKind::Semicolon,
             "Expect ';' after variable declaration.",
         )?;
-        self.write_ins(OpCode::DefineGlobal(id));
+
+        self.define_variable(id);
         Ok(())
     }
 
+    fn declare_local(&mut self, name: &'a str) -> Result<()> {
+        for i in (0..self.locals.len()).rev() {
+            let local = &self.locals[i];
+            if local.depth.is_some() && local.depth.unwrap() < self.scope_depth {
+                break;
+            }
+            if local.name == name {
+                return Err(self
+                    .error_at_previous("Variable with this name already declared in this scope."));
+            }
+        }
+
+        self.locals.push(Local::new(name, None));
+        Ok(())
+    }
+
+    fn declare_variable(&mut self) -> Result<u16> {
+        let name = self.consume_ident("Expect variable name.")?;
+        if self.scope_depth == 0 {
+            // a global
+            Ok(self.write_ident_constant(name))
+        } else {
+            self.declare_local(name)?;
+            Ok(0)
+        }
+    }
+
+    fn define_variable(&mut self, id: u16) {
+        if self.scope_depth == 0 {
+            self.write_ins(OpCode::DefineGlobal(id));
+        } else {
+            self.mark_initialized();
+        }
+    }
+
+    fn mark_initialized(&mut self) {
+        self.locals.last_mut().unwrap().depth = Some(self.scope_depth);
+    }
+
     fn variable(&mut self, ident: &'a str, can_assign: bool) -> Result<()> {
-        let id = self.write_ident_constant(ident);
+        let (is_local, arg) = if let Some(offset) = self.resolve_local(ident) {
+            (true, offset)
+        } else {
+            (false, self.write_ident_constant(ident))
+        };
+
         if can_assign && self.match_curr(&TokenKind::Equal)? {
             self.expression()?;
-            self.write_ins(OpCode::SetGlobal(id));
+            if is_local {
+                self.write_ins(OpCode::SetLocal(arg));
+            } else {
+                self.write_ins(OpCode::SetGlobal(arg));
+            }
         } else {
-            self.write_ins(OpCode::GetGlobal(id));
+            if is_local {
+                self.write_ins(OpCode::GetLocal(arg));
+            } else {
+                self.write_ins(OpCode::GetGlobal(arg));
+            }
         }
         Ok(())
+    }
+
+    fn resolve_local(&mut self, name: &'a str) -> Option<u16> {
+        for (i, local) in self.locals.iter().rev().enumerate() {
+            if local.name == name {
+                if local.depth.is_none() {
+                    self.error_at_previous("Cannot read local variable in its own initializer.");
+                }
+                return Some((self.locals.len() - 1 - i) as u16);
+            }
+        }
+
+        None
     }
 
     fn print_stmt(&mut self) -> Result<()> {

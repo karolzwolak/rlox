@@ -6,9 +6,13 @@ pub enum OpCode {
     Return,
     Print,
     Pop,
+
     DefineGlobal(u16),
     GetGlobal(u16),
     SetGlobal(u16),
+
+    GetLocal(u16),
+    SetLocal(u16),
 
     Negate,
     Not,
@@ -180,9 +184,13 @@ impl OpCode {
             OpCode::Return => "OP_RETURN".to_string(),
             OpCode::Print => "OP_PRINT".to_string(),
             OpCode::Pop => "OP_POP".to_string(),
+
             OpCode::DefineGlobal(index) => format!("OP_DEFINE_GLOBAL<#{:04}>", index),
             OpCode::GetGlobal(index) => format!("OP_GET_GLOBAL<#{:04}>", index),
             OpCode::SetGlobal(index) => format!("OP_SET_GLOBAL<#{:04}>", index),
+
+            OpCode::GetLocal(index) => format!("OP_GET_LOCAL<s#{:04}>", index),
+            OpCode::SetLocal(index) => format!("OP_SET_LOCAL<s#{:04}>", index),
 
             OpCode::Negate => "OP_NEGATE".to_string(),
             OpCode::Not => "OP_NOT".to_string(),

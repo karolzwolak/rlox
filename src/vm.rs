@@ -43,6 +43,11 @@ impl<'a> VM<'a> {
                 OpCode::GetGlobal(index) => self.get_global(*index)?,
                 OpCode::SetGlobal(index) => self.set_global(*index)?,
 
+                OpCode::GetLocal(offset) => self.push_stack(self.stack[*offset as usize].clone()),
+                OpCode::SetLocal(offset) => {
+                    self.stack[*offset as usize] = self.peek_stack_unwrapped(0).clone();
+                }
+
                 OpCode::True => self.push_stack(Value::Boolean(true)),
                 OpCode::False => self.push_stack(Value::Boolean(false)),
                 OpCode::Nil => self.push_stack(Value::Nil),
@@ -74,10 +79,9 @@ impl<'a> VM<'a> {
     fn get_global(&mut self, index: u16) -> Result<()> {
         if let Value::String(s) = self.chunk.get_const(index) {
             let ident = s.as_str();
-            let val = self
-                .globals
-                .get(ident)
-                .ok_or_else(|| self.runtime_error(&format!("Undefined global variable '{ident}'")))?;
+            let val = self.globals.get(ident).ok_or_else(|| {
+                self.runtime_error(&format!("Undefined global variable '{ident}'"))
+            })?;
             let val = val.clone();
             self.push_stack(val);
             Ok(())
@@ -89,7 +93,7 @@ impl<'a> VM<'a> {
     fn set_global(&mut self, index: u16) -> Result<()> {
         if let Value::String(s) = self.chunk.get_const(index) {
             let ident = s.as_str();
-            let val = self.pop_stack();
+            let val = self.peek_stack_unwrapped(0).clone();
             if self.globals.contains_key(ident) {
                 self.globals.insert(ident, val);
                 Ok(())
