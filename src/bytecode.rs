@@ -1,6 +1,6 @@
 use std::{fmt, rc::Rc};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum OpCode {
     Constant(u16),
     Return,
@@ -13,6 +13,9 @@ pub enum OpCode {
 
     GetLocal(u16),
     SetLocal(u16),
+
+    JumpIfFalse(Option<u16>),
+    Jump(Option<u16>),
 
     Negate,
     Not,
@@ -41,6 +44,16 @@ pub enum Value {
     String(Rc<String>),
     Boolean(bool),
     Nil,
+}
+
+impl Value {
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            Value::Nil => false,
+            Value::Boolean(b) => *b,
+            _ => true,
+        }
+    }
 }
 
 impl fmt::Display for Value {
@@ -138,6 +151,10 @@ impl Chunk {
         &self.code
     }
 
+    pub fn code_mut(&mut self) -> &mut Vec<OpCode> {
+        &mut self.code
+    }
+
     pub fn dissassemble_ins(&self, offset: usize) -> String {
         let prefix = if offset > 0 && self.lines[offset] == self.lines[offset - 1] {
             "   |".to_string()
@@ -191,6 +208,9 @@ impl OpCode {
 
             OpCode::GetLocal(index) => format!("OP_GET_LOCAL<s#{:04}>", index),
             OpCode::SetLocal(index) => format!("OP_SET_LOCAL<s#{:04}>", index),
+
+            OpCode::JumpIfFalse(offset) => format!("OP_JUMP_IF_FALSE<{:+04}>", offset.unwrap_or(0)),
+            OpCode::Jump(offset) => format!("OP_JUMP<{:+04}>", offset.unwrap_or(0)),
 
             OpCode::Negate => "OP_NEGATE".to_string(),
             OpCode::Not => "OP_NOT".to_string(),

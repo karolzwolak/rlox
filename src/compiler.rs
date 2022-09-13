@@ -61,7 +61,7 @@ impl<'a> Compiler<'a> {
             locals: Vec::with_capacity(256),
         }
     }
-    fn write_ins(&mut self, ins: bytecode::OpCode) {
+    fn emit_ins(&mut self, ins: bytecode::OpCode) {
         self.chunk.write_ins(ins, self.previous.line());
     }
 
@@ -69,7 +69,7 @@ impl<'a> Compiler<'a> {
         self.chunk.add_const(val)
     }
 
-    fn write_const_ins(&mut self, value: Value) {
+    fn emit_const_ins(&mut self, value: Value) {
         self.chunk.add_const_ins(value, self.previous.line())
     }
 
@@ -123,7 +123,13 @@ impl<'a> Compiler<'a> {
         self.previous = mem::replace(&mut self.current, curr);
     }
 
-    fn declaration(&mut self) {
+    fn write_ident_constant(&mut self, ident: &'a str) -> u16 {
+        let ident = Value::String(Rc::new(ident.to_string()));
+        self.add_const(ident)
+    }
+
+    fn declaration(&mut self) -> bool {
+        // true means it was successful
         let result = match self.current.kind() {
             TokenKind::Var => self.var_decl(),
             _ => self.statement(),
@@ -131,20 +137,59 @@ impl<'a> Compiler<'a> {
         if let Err(error) = result {
             self.synchronize();
             self.report_error(error);
+            return false;
         }
+        true
     }
 
     fn statement(&mut self) -> Result<()> {
         match self.current.kind() {
             TokenKind::Print => self.print_stmt(),
             TokenKind::LeftBrace => self.block(),
+            TokenKind::If => self.if_stmt(),
             _ => self.expression_stmt(),
         }
     }
 
-    fn write_ident_constant(&mut self, ident: &'a str) -> u16 {
-        let ident = Value::String(Rc::new(ident.to_string()));
-        self.add_const(ident)
+    fn if_stmt(&mut self) -> Result<()> {
+        self.advance()?;
+
+        self.consume(TokenKind::LeftParen, "Expect '(' after 'if'.")?;
+        self.expression()?;
+        self.consume(TokenKind::RightParen, "Expect ')' after condition.")?;
+
+        let then_jump = self.emit_jump(OpCode::JumpIfFalse(None));
+        self.emit_ins(OpCode::Pop);
+        self.statement()?;
+
+        let else_jump = self.emit_jump(OpCode::Jump(None));
+
+        self.patch_jump(then_jump);
+        self.emit_ins(OpCode::Pop);
+
+        if self.match_curr(&TokenKind::Else)? {
+            self.statement()?;
+        }
+        self.patch_jump(else_jump);
+        Ok(())
+    }
+
+    fn emit_jump(&mut self, ins: OpCode) -> usize {
+        self.emit_ins(ins);
+        self.chunk.code().len()
+    }
+
+    fn patch_jump(&mut self, mut offset: usize) {
+        offset -= 1;
+        let jump = self.chunk.code().len() - offset;
+
+        let code = self.chunk.code_mut();
+        assert!(
+            matches!(code[offset], OpCode::JumpIfFalse(None) | OpCode::Jump(None)),
+            "Internal error: invalid jump offset. Tried to patch a non-jump instruction."
+        );
+
+        code[offset] = OpCode::JumpIfFalse(Some(jump as u16));
     }
 
     fn block(&mut self) -> Result<()> {
@@ -152,7 +197,10 @@ impl<'a> Compiler<'a> {
         self.scope_depth += 1;
 
         while !self.check_curr(&TokenKind::RightBrace) && !self.is_at_end() {
-            self.declaration();
+            if !self.declaration() {
+                self.end_scope();
+                return Ok(());
+            }
         }
 
         self.end_scope();
@@ -166,7 +214,7 @@ impl<'a> Compiler<'a> {
         while !self.locals.is_empty()
             && self.locals.last().unwrap().depth.unwrap() > self.scope_depth
         {
-            self.write_ins(OpCode::Pop);
+            self.emit_ins(OpCode::Pop);
             self.locals.pop();
         }
     }
@@ -178,7 +226,7 @@ impl<'a> Compiler<'a> {
         if self.match_curr(&TokenKind::Equal)? {
             self.expression()?;
         } else {
-            self.write_ins(OpCode::Nil);
+            self.emit_ins(OpCode::Nil);
         }
 
         self.consume(
@@ -219,7 +267,7 @@ impl<'a> Compiler<'a> {
 
     fn define_variable(&mut self, id: u16) {
         if self.scope_depth == 0 {
-            self.write_ins(OpCode::DefineGlobal(id));
+            self.emit_ins(OpCode::DefineGlobal(id));
         } else {
             self.mark_initialized();
         }
@@ -239,15 +287,15 @@ impl<'a> Compiler<'a> {
         if can_assign && self.match_curr(&TokenKind::Equal)? {
             self.expression()?;
             if is_local {
-                self.write_ins(OpCode::SetLocal(arg));
+                self.emit_ins(OpCode::SetLocal(arg));
             } else {
-                self.write_ins(OpCode::SetGlobal(arg));
+                self.emit_ins(OpCode::SetGlobal(arg));
             }
         } else {
             if is_local {
-                self.write_ins(OpCode::GetLocal(arg));
+                self.emit_ins(OpCode::GetLocal(arg));
             } else {
-                self.write_ins(OpCode::GetGlobal(arg));
+                self.emit_ins(OpCode::GetGlobal(arg));
             }
         }
         Ok(())
@@ -270,14 +318,14 @@ impl<'a> Compiler<'a> {
         self.advance()?;
         self.expression()?;
         self.consume(TokenKind::Semicolon, "Expect ';' after value.")?;
-        self.write_ins(OpCode::Print);
+        self.emit_ins(OpCode::Print);
         Ok(())
     }
 
     fn expression_stmt(&mut self) -> Result<()> {
         self.expression()?;
         self.consume(TokenKind::Semicolon, "Expect ';' after expression.")?;
-        self.write_ins(OpCode::Pop);
+        self.emit_ins(OpCode::Pop);
         Ok(())
     }
 
@@ -360,7 +408,7 @@ impl<'a> Compiler<'a> {
     fn unary(&mut self) -> Result<()> {
         let op = *self.previous.kind();
         self.parse_precedence(Precedence::Unary)?;
-        self.write_ins(match op {
+        self.emit_ins(match op {
             TokenKind::Bang => OpCode::Not,
             TokenKind::Minus => OpCode::Negate,
             _ => unreachable!(),
@@ -390,25 +438,25 @@ impl<'a> Compiler<'a> {
         self.parse_precedence(precedence.higher())?;
 
         match operator {
-            TokenKind::Plus => self.write_ins(OpCode::Add),
-            TokenKind::Minus => self.write_ins(OpCode::Subtract),
-            TokenKind::Star => self.write_ins(OpCode::Multiply),
-            TokenKind::Slash => self.write_ins(OpCode::Divide),
+            TokenKind::Plus => self.emit_ins(OpCode::Add),
+            TokenKind::Minus => self.emit_ins(OpCode::Subtract),
+            TokenKind::Star => self.emit_ins(OpCode::Multiply),
+            TokenKind::Slash => self.emit_ins(OpCode::Divide),
             TokenKind::BangEqual => {
-                self.write_ins(OpCode::Equal);
-                self.write_ins(OpCode::Not);
+                self.emit_ins(OpCode::Equal);
+                self.emit_ins(OpCode::Not);
             }
-            TokenKind::EqualEqual => self.write_ins(OpCode::Equal),
-            TokenKind::Less => self.write_ins(OpCode::Less),
+            TokenKind::EqualEqual => self.emit_ins(OpCode::Equal),
+            TokenKind::Less => self.emit_ins(OpCode::Less),
             TokenKind::LessEqual => {
-                self.write_ins(OpCode::Greater);
-                self.write_ins(OpCode::Not);
+                self.emit_ins(OpCode::Greater);
+                self.emit_ins(OpCode::Not);
             }
 
-            TokenKind::Greater => self.write_ins(OpCode::Greater),
+            TokenKind::Greater => self.emit_ins(OpCode::Greater),
             TokenKind::GreaterEqual => {
-                self.write_ins(OpCode::Less);
-                self.write_ins(OpCode::Not);
+                self.emit_ins(OpCode::Less);
+                self.emit_ins(OpCode::Not);
             }
 
             _ => unreachable!(),
@@ -418,9 +466,9 @@ impl<'a> Compiler<'a> {
 
     fn literal(&mut self) {
         match self.previous.kind() {
-            TokenKind::True => self.write_ins(OpCode::True),
-            TokenKind::False => self.write_ins(OpCode::False),
-            TokenKind::Nil => self.write_ins(OpCode::Nil),
+            TokenKind::True => self.emit_ins(OpCode::True),
+            TokenKind::False => self.emit_ins(OpCode::False),
+            TokenKind::Nil => self.emit_ins(OpCode::Nil),
             _ => unreachable!(),
         }
     }
@@ -438,7 +486,7 @@ impl<'a> Compiler<'a> {
         match kind {
             TokenKind::LeftParen => self.grouping(),
             TokenKind::Number(val) => {
-                self.write_const_ins(Value::Number(val));
+                self.emit_const_ins(Value::Number(val));
                 Ok(())
             }
             TokenKind::Minus | TokenKind::Bang => self.unary(),
@@ -447,7 +495,7 @@ impl<'a> Compiler<'a> {
                 Ok(())
             }
             TokenKind::String(s) => {
-                self.write_const_ins(Value::String(Rc::new(s.to_string())));
+                self.emit_const_ins(Value::String(Rc::new(s.to_string())));
                 Ok(())
             }
             TokenKind::Identifier(ident) => self.variable(ident, can_assign),

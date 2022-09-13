@@ -48,6 +48,19 @@ impl<'a> VM<'a> {
                     self.stack[*offset as usize] = self.peek_stack_unwrapped(0).clone();
                 }
 
+                OpCode::JumpIfFalse(offset) => {
+                    let offset =
+                        offset.expect("Internal error: jump instruction has no offset") as usize;
+                    if !self.peek_stack_unwrapped(0).is_truthy() {
+                        self.ip += offset;
+                    }
+                }
+                OpCode::Jump(offset) => {
+                    let offset =
+                        offset.expect("Internal error: jump instruction has no offset") as usize;
+                    self.ip += offset;
+                }
+
                 OpCode::True => self.push_stack(Value::Boolean(true)),
                 OpCode::False => self.push_stack(Value::Boolean(false)),
                 OpCode::Nil => self.push_stack(Value::Nil),
