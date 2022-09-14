@@ -57,14 +57,24 @@ impl<'a> TokenKind<'a> {
     pub fn precedence(&self) -> Precedence {
         match self {
             TokenKind::Slash | TokenKind::Star => Precedence::Factor,
+
             TokenKind::Bang => Precedence::Unary,
+
             TokenKind::EqualEqual | TokenKind::BangEqual => Precedence::Equality,
+
             TokenKind::Greater
             | TokenKind::Less
             | TokenKind::GreaterEqual
             | TokenKind::LessEqual => Precedence::Comparison,
+
             TokenKind::Plus | TokenKind::Minus => Precedence::Term,
+
             TokenKind::Equal => Precedence::Assignment,
+
+            TokenKind::And => Precedence::And,
+
+            TokenKind::Or => Precedence::Or,
+
             _ => Precedence::None,
         }
     }
@@ -148,5 +158,4 @@ impl<'a> Token<'a> {
     pub fn start(&self) -> usize {
         self.start
     }
-
 }

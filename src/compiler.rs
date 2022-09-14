@@ -147,6 +147,7 @@ impl<'a> Compiler<'a> {
             TokenKind::Print => self.print_stmt(),
             TokenKind::LeftBrace => self.block(),
             TokenKind::If => self.if_stmt(),
+            TokenKind::While => self.while_stmt(),
             _ => self.expression_stmt(),
         }
     }
@@ -176,20 +177,19 @@ impl<'a> Compiler<'a> {
 
     fn emit_jump(&mut self, ins: OpCode) -> usize {
         self.emit_ins(ins);
-        self.chunk.code().len()
+        self.chunk.code().len() - 1
     }
 
-    fn patch_jump(&mut self, mut offset: usize) {
-        offset -= 1;
-        let jump = self.chunk.code().len() - offset;
+    fn patch_jump(&mut self, index: usize) {
+        let jump_offset = (self.chunk.code().len() - index - 1) as u16;
 
         let code = self.chunk.code_mut();
-        assert!(
-            matches!(code[offset], OpCode::JumpIfFalse(None) | OpCode::Jump(None)),
-            "Internal error: invalid jump offset. Tried to patch a non-jump instruction."
-        );
 
-        code[offset] = OpCode::JumpIfFalse(Some(jump as u16));
+        match code[index] {
+            OpCode::JumpIfFalse(None) => code[index] = OpCode::JumpIfFalse(Some(jump_offset)),
+            OpCode::Jump(None) => code[index] = OpCode::Jump(Some(jump_offset)),
+            _ => panic!("Internal error: Tried to patch non jump insruction"),
+        }
     }
 
     fn block(&mut self) -> Result<()> {
@@ -464,6 +464,29 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
+    fn or(&mut self) -> Result<()> {
+        let else_jump = self.emit_jump(OpCode::JumpIfFalse(None));
+        let end_jump = self.emit_jump(OpCode::Jump(None));
+
+        self.patch_jump(else_jump);
+        self.emit_ins(OpCode::Pop);
+
+        self.parse_precedence(Precedence::Or)?;
+        self.patch_jump(end_jump);
+
+        Ok(())
+    }
+
+    fn and(&mut self) -> Result<()> {
+        let end_jump = self.emit_jump(OpCode::JumpIfFalse(None));
+
+        self.emit_ins(OpCode::Pop);
+        self.parse_precedence(Precedence::And)?;
+
+        self.patch_jump(end_jump);
+        Ok(())
+    }
+
     fn literal(&mut self) {
         match self.previous.kind() {
             TokenKind::True => self.emit_ins(OpCode::True),
@@ -516,6 +539,9 @@ impl<'a> Compiler<'a> {
             | TokenKind::GreaterEqual
             | TokenKind::Less
             | TokenKind::LessEqual => self.binary(),
+
+            TokenKind::Or => self.or(),
+            TokenKind::And => self.and(),
 
             _ => Ok(()),
         }

@@ -33,51 +33,64 @@ impl<'a> VM<'a> {
             self._trace();
 
             let ins = self.advance();
-            match ins {
-                OpCode::Constant(index) => self.add_const(*index),
-                OpCode::Print => self.print(),
-                OpCode::Pop => {
-                    self.pop_stack();
-                }
-                OpCode::DefineGlobal(index) => self.define_global(*index),
-                OpCode::GetGlobal(index) => self.get_global(*index)?,
-                OpCode::SetGlobal(index) => self.set_global(*index)?,
 
-                OpCode::GetLocal(offset) => self.push_stack(self.stack[*offset as usize].clone()),
-                OpCode::SetLocal(offset) => {
-                    self.stack[*offset as usize] = self.peek_stack_unwrapped(0).clone();
-                }
-
-                OpCode::JumpIfFalse(offset) => {
-                    let offset =
-                        offset.expect("Internal error: jump instruction has no offset") as usize;
-                    if !self.peek_stack_unwrapped(0).is_truthy() {
-                        self.ip += offset;
-                    }
-                }
-                OpCode::Jump(offset) => {
-                    let offset =
-                        offset.expect("Internal error: jump instruction has no offset") as usize;
-                    self.ip += offset;
-                }
-
-                OpCode::True => self.push_stack(Value::Boolean(true)),
-                OpCode::False => self.push_stack(Value::Boolean(false)),
-                OpCode::Nil => self.push_stack(Value::Nil),
-
-                OpCode::Negate => self.negate()?,
-                OpCode::Not => self.not()?,
-
-                op @ (OpCode::Greater | OpCode::Less) => self.comparison(op)?,
-                OpCode::Equal => self.equality(),
-
-                OpCode::Add => self.add()?,
-                op @ (OpCode::Subtract | OpCode::Multiply | OpCode::Divide) => self.binary(op)?,
-
-                OpCode::Return => break,
+            let cont = self.execute_ins(*ins)?;
+            if !cont {
+                break;
             }
         }
+        if !self.stack.is_empty() {
+            eprintln!("WARGING: stack is not empty at the end of execution");
+        }
         Ok(())
+    }
+
+    fn execute_ins(&mut self, ins: OpCode) -> Result<bool> {
+        // return if we should continue
+
+        match ins {
+            OpCode::Constant(index) => self.add_const(index),
+            OpCode::Print => self.print(),
+            OpCode::Pop => {
+                self.pop_stack();
+            }
+            OpCode::DefineGlobal(index) => self.define_global(index),
+            OpCode::GetGlobal(index) => self.get_global(index)?,
+            OpCode::SetGlobal(index) => self.set_global(index)?,
+
+            OpCode::GetLocal(offset) => self.push_stack(self.stack[offset as usize].clone()),
+            OpCode::SetLocal(offset) => {
+                self.stack[offset as usize] = self.peek_stack_unwrapped(0).clone();
+            }
+
+            OpCode::JumpIfFalse(offset) => {
+                let offset =
+                    offset.expect("Internal error: jump instruction has no offset") as usize;
+                if !self.peek_stack_unwrapped(0).is_truthy() {
+                    self.ip += offset;
+                }
+            }
+            OpCode::Jump(offset) => {
+                let offset =
+                    offset.expect("Internal error: jump instruction has no offset") as usize;
+                self.ip += offset;
+            }
+
+            OpCode::True => self.push_stack(Value::Boolean(true)),
+            OpCode::False => self.push_stack(Value::Boolean(false)),
+            OpCode::Nil => self.push_stack(Value::Nil),
+
+            OpCode::Negate => self.negate()?,
+            OpCode::Not => self.not()?,
+
+            op @ (OpCode::Greater | OpCode::Less) => self.comparison(op)?,
+            OpCode::Equal => self.equality(),
+
+            OpCode::Add => self.add()?,
+            op @ (OpCode::Subtract | OpCode::Multiply | OpCode::Divide) => self.binary(op)?,
+            OpCode::Return => return Ok(false),
+        }
+        Ok(true)
     }
 
     fn define_global(&mut self, index: u16) {
@@ -213,7 +226,7 @@ impl<'a> VM<'a> {
         panic!("Internal error: {}", msg)
     }
 
-    fn binary(&mut self, operator: &OpCode) -> Result<()> {
+    fn binary(&mut self, operator: OpCode) -> Result<()> {
         let b = self.pop_number()?;
         let a = self.pop_number()?;
         self.stack.push(Value::Number(match operator {
@@ -225,7 +238,7 @@ impl<'a> VM<'a> {
         Ok(())
     }
 
-    fn comparison(&mut self, operator: &OpCode) -> Result<()> {
+    fn comparison(&mut self, operator: OpCode) -> Result<()> {
         let b = self.pop_number()?;
         let a = self.pop_number()?;
         self.push_stack(Value::Boolean(match operator {
