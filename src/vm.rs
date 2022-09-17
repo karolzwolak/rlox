@@ -1,3 +1,5 @@
+use std::io;
+use std::io::Write;
 use std::{collections::HashMap, rc::Rc};
 
 use crate::{
@@ -6,6 +8,7 @@ use crate::{
 };
 pub struct VM<'a> {
     chunk: &'a bytecode::Chunk,
+    lock: io::StdoutLock<'a>,
     ip: usize,
     stack: Vec<bytecode::Value>,
     globals: HashMap<&'a str, Value>,
@@ -16,6 +19,7 @@ impl<'a> VM<'a> {
     pub fn with_chunk(chunk: &'a bytecode::Chunk) -> Self {
         Self {
             chunk,
+            lock: io::stdout().lock(),
             ip: 0,
             stack: Vec::with_capacity(Self::STACK_MAX),
             globals: HashMap::new(),
@@ -50,7 +54,7 @@ impl<'a> VM<'a> {
 
         match ins {
             OpCode::Constant(index) => self.add_const(index),
-            OpCode::Print => self.print(),
+            OpCode::Print => self.print()?,
             OpCode::Pop => {
                 self.pop_stack();
             }
@@ -74,6 +78,10 @@ impl<'a> VM<'a> {
                 let offset =
                     offset.expect("Internal error: jump instruction has no offset") as usize;
                 self.ip += offset;
+            }
+
+            OpCode::Loop(offset) => {
+                self.ip -= offset as usize;
             }
 
             OpCode::True => self.push_stack(Value::Boolean(true)),
@@ -131,8 +139,10 @@ impl<'a> VM<'a> {
         }
     }
 
-    fn print(&mut self) {
-        println!("{}", self.pop_stack())
+    fn print(&mut self) -> Result<()> {
+        let val = self.pop_stack();
+        writeln!(self.lock, "{}", val)?;
+        Ok(())
     }
 
     fn add_const(&mut self, id: u16) {
@@ -192,7 +202,11 @@ impl<'a> VM<'a> {
     }
 
     fn peek_stack(&self, offset: usize) -> Option<&Value> {
-        self.stack.get(self.stack.len() - 1 - offset)
+        if offset < self.stack.len() {
+            self.stack.get(self.stack.len() - 1 - offset)
+        } else {
+            None
+        }
     }
 
     fn peek_stack_unwrapped(&self, offset: usize) -> &Value {
@@ -201,7 +215,7 @@ impl<'a> VM<'a> {
         } else {
             self.internal_error(&format!(
                 "Expected value at stack at index {} but found no value",
-                self.stack.len() - 1 - offset
+                self.stack.len() as isize - 1 - offset as isize
             ))
         }
     }

@@ -152,6 +152,26 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn while_stmt(&mut self) -> Result<()> {
+        self.advance()?;
+
+        let loop_start = self.chunk.len();
+
+        self.consume(TokenKind::LeftParen, "Expect '(' after 'while'.")?;
+        self.expression()?;
+        self.consume(TokenKind::RightParen, "Expect ')' after condition.")?;
+
+        let exit_jump = self.emit_jump(OpCode::JumpIfFalse(None));
+        self.emit_ins(OpCode::Pop);
+
+        self.statement()?;
+        self.emit_loop(loop_start)?;
+
+        self.patch_jump(exit_jump);
+        self.emit_ins(OpCode::Pop);
+        Ok(())
+    }
+
     fn if_stmt(&mut self) -> Result<()> {
         self.advance()?;
 
@@ -175,20 +195,29 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
+    fn emit_loop(&mut self, loop_start: usize) -> Result<()> {
+        let offset = self.chunk.len() - loop_start + 1;
+        if offset > u16::MAX as usize {
+            return Err(self.error_at_previous("Loop body too large."));
+        }
+        self.emit_ins(OpCode::Loop(offset as u16));
+        Ok(())
+    }
+
     fn emit_jump(&mut self, ins: OpCode) -> usize {
         self.emit_ins(ins);
-        self.chunk.code().len() - 1
+        self.chunk.len() - 1
     }
 
     fn patch_jump(&mut self, index: usize) {
-        let jump_offset = (self.chunk.code().len() - index - 1) as u16;
+        let jump_offset = (self.chunk.len() - index - 1) as u16;
 
         let code = self.chunk.code_mut();
 
         match code[index] {
             OpCode::JumpIfFalse(None) => code[index] = OpCode::JumpIfFalse(Some(jump_offset)),
             OpCode::Jump(None) => code[index] = OpCode::Jump(Some(jump_offset)),
-            _ => panic!("Internal error: Tried to patch non jump insruction"),
+            _ => unreachable!("Internal error: Tried to patch non jump insruction"),
         }
     }
 

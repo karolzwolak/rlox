@@ -17,6 +17,8 @@ pub enum OpCode {
     JumpIfFalse(Option<u16>),
     Jump(Option<u16>),
 
+    Loop(u16),
+
     Negate,
     Not,
     Add,
@@ -147,6 +149,10 @@ impl Chunk {
         &self.constants[index as usize]
     }
 
+    pub fn len(&self) -> usize {
+        self.code.len()
+    }
+
     pub fn code(&self) -> &[OpCode] {
         &self.code
     }
@@ -209,8 +215,10 @@ impl OpCode {
             OpCode::GetLocal(index) => format!("OP_GET_LOCAL<s#{:04}>", index),
             OpCode::SetLocal(index) => format!("OP_SET_LOCAL<s#{:04}>", index),
 
-            OpCode::JumpIfFalse(offset) => format!("OP_JUMP_IF_FALSE<{:+04}>", offset.unwrap_or(0)),
+            OpCode::JumpIfFalse(offset) => format!("OP_JUMP_IF_FALSE<+{:04}>", offset.unwrap_or(0)),
             OpCode::Jump(offset) => format!("OP_JUMP<{:+04}>", offset.unwrap_or(0)),
+
+            OpCode::Loop(offset) => format!("OP_LOOP<-{:04}>", offset),
 
             OpCode::Negate => "OP_NEGATE".to_string(),
             OpCode::Not => "OP_NOT".to_string(),
