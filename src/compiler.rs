@@ -148,8 +148,68 @@ impl<'a> Compiler<'a> {
             TokenKind::LeftBrace => self.block(),
             TokenKind::If => self.if_stmt(),
             TokenKind::While => self.while_stmt(),
+            TokenKind::For => self.for_stmt(),
             _ => self.expression_stmt(),
         }
+    }
+
+    fn for_stmt(&mut self) -> Result<()> {
+        self.advance()?;
+        self.scope_depth += 1;
+
+        let result = self.parse_for();
+
+        self.end_scope();
+        result
+    }
+
+    fn parse_for(&mut self) -> Result<()> {
+        self.consume(TokenKind::LeftParen, "Expect '(' after 'for'.")?;
+        match self.current.kind() {
+            TokenKind::Semicolon => {}
+            TokenKind::Var => {
+                self.var_decl()?;
+            }
+            _ => {
+                self.expression_stmt()?;
+            }
+        }
+
+        let mut loop_start = self.curr_chunk().len();
+        let mut exit_jump = None;
+
+        if !self.match_curr(TokenKind::Semicolon)? {
+            self.expression()?;
+            self.consume(TokenKind::Semicolon, "Expect ';' after loop condition.")?;
+
+            // Jump out of the loop if the condition is false.
+            exit_jump = Some(self.emit_jump(OpCode::JumpIfFalse(None)));
+            self.emit_ins(OpCode::Pop);
+        }
+
+        if !self.match_curr(TokenKind::RightParen)? {
+            let body_jump = self.emit_jump(OpCode::Jump(None));
+
+            let increment_start = self.curr_chunk().len();
+            self.expression()?;
+            self.emit_ins(OpCode::Pop);
+
+            self.consume(TokenKind::RightParen, "Expect ')' after for clauses.")?;
+
+            self.emit_loop(loop_start)?;
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+
+        self.statement()?;
+
+        self.emit_loop(loop_start)?;
+
+        if let Some(exit_jump) = exit_jump {
+            self.patch_jump(exit_jump);
+            self.emit_ins(OpCode::Pop);
+        }
+        Ok(())
     }
 
     fn while_stmt(&mut self) -> Result<()> {
@@ -188,7 +248,7 @@ impl<'a> Compiler<'a> {
         self.patch_jump(then_jump);
         self.emit_ins(OpCode::Pop);
 
-        if self.match_curr(&TokenKind::Else)? {
+        if self.match_curr(TokenKind::Else)? {
             self.statement()?;
         }
         self.patch_jump(else_jump);
@@ -225,7 +285,7 @@ impl<'a> Compiler<'a> {
         self.advance()?;
         self.scope_depth += 1;
 
-        while !self.check_curr(&TokenKind::RightBrace) && !self.is_at_end() {
+        while !self.check_curr(TokenKind::RightBrace) && !self.is_at_end() {
             if !self.declaration() {
                 self.end_scope();
                 return Ok(());
@@ -252,7 +312,7 @@ impl<'a> Compiler<'a> {
         self.advance()?;
         let id = self.declare_variable()?;
 
-        if self.match_curr(&TokenKind::Equal)? {
+        if self.match_curr(TokenKind::Equal)? {
             self.expression()?;
         } else {
             self.emit_ins(OpCode::Nil);
@@ -313,7 +373,7 @@ impl<'a> Compiler<'a> {
             (false, self.write_ident_constant(ident))
         };
 
-        if can_assign && self.match_curr(&TokenKind::Equal)? {
+        if can_assign && self.match_curr(TokenKind::Equal)? {
             self.expression()?;
             if is_local {
                 self.emit_ins(OpCode::SetLocal(arg));
@@ -359,10 +419,10 @@ impl<'a> Compiler<'a> {
     }
 
     fn is_at_end(&self) -> bool {
-        self.check_curr(&TokenKind::Eof)
+        self.check_curr(TokenKind::Eof)
     }
 
-    fn match_curr(&mut self, kind: &TokenKind) -> Result<bool> {
+    fn match_curr(&mut self, kind: TokenKind) -> Result<bool> {
         if self.check_curr(kind) {
             self.advance()?;
             Ok(true)
@@ -371,8 +431,8 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn check_curr(&self, kind: &TokenKind) -> bool {
-        *self.current.kind() == *kind
+    fn check_curr(&self, kind: TokenKind) -> bool {
+        *self.current.kind() == kind
     }
 
     fn advance(&mut self) -> Result<()> {
@@ -408,7 +468,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn consume(&mut self, expected: TokenKind, msg: &str) -> Result<()> {
-        if *self.current.kind() == expected {
+        if self.check_curr(expected) {
             self.advance()?;
             Ok(())
         } else {
@@ -455,7 +515,7 @@ impl<'a> Compiler<'a> {
             self.advance()?;
             self.infix(*self.previous.kind())?;
         }
-        if can_assign && self.match_curr(&TokenKind::Equal)? {
+        if can_assign && self.match_curr(TokenKind::Equal)? {
             return Err(self.error_at_previous("Invalid assignment target."));
         }
         Ok(())
