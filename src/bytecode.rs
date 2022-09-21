@@ -34,16 +34,69 @@ pub enum OpCode {
     False,
     Nil,
 }
+#[derive(Debug, Clone)]
 pub struct Chunk {
     code: Vec<OpCode>,
     constants: Vec<Value>,
     lines: Vec<usize>,
 }
 
-#[derive(Debug, PartialOrd)]
+#[derive(Debug, Clone)]
+pub struct FunctionObj {
+    name: String,
+    arity: u8,
+    chunk: Chunk,
+}
+
+impl fmt::Display for FunctionObj {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<fn {}>", self.name)
+    }
+}
+
+impl FunctionObj {
+    pub fn new(name: String, arity: u8, code: Chunk) -> Self {
+        Self {
+            name,
+            arity,
+            chunk: code,
+        }
+    }
+
+    pub fn new_main() -> Self {
+        Self {
+            name: String::from("main"),
+            arity: 0,
+            chunk: Chunk::new(),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn arity(&self) -> u8 {
+        self.arity
+    }
+
+    pub fn chunk(&self) -> &Chunk {
+        &self.chunk
+    }
+
+    pub fn chunk_mut(&mut self) -> &mut Chunk {
+        &mut self.chunk
+    }
+
+    pub fn disassemble(&self) {
+        self.chunk.disassemble(&self.name);
+    }
+}
+
+#[derive(Debug)]
 pub enum Value {
     Number(f64),
     String(Rc<String>),
+    Function(Rc<FunctionObj>),
     Boolean(bool),
     Nil,
 }
@@ -65,6 +118,7 @@ impl fmt::Display for Value {
             Value::String(s) => write!(f, "{}", s),
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Nil => write!(f, "<Nil>"),
+            Value::Function(fun) => write!(f, "<Fn {}>", fun.name),
         }
     }
 }
@@ -76,6 +130,7 @@ impl PartialEq for Value {
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Nil, Value::Nil) => true,
+            (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
@@ -86,6 +141,7 @@ impl Clone for Value {
         match self {
             Self::Number(n) => Self::Number(*n),
             Self::String(s) => Self::String(Rc::clone(s)),
+            Self::Function(f) => Self::Function(Rc::clone(f)),
             Self::Boolean(b) => Self::Boolean(*b),
             Self::Nil => Self::Nil,
         }

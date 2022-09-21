@@ -1,10 +1,13 @@
-use std::{io::{self, Write}, fs};
+use std::{
+    fs,
+    io::{self, Write},
+};
 
 pub mod bytecode;
-pub mod vm;
 pub mod compiler;
 pub mod scanner;
 pub mod token;
+pub mod vm;
 
 pub type Error = Box<dyn std::error::Error>;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -34,7 +37,7 @@ pub fn run_file(path: String) -> Result<()> {
 
 fn interpret(source: String) -> Result<()> {
     let compiler = compiler::Compiler::new(&source);
-    let chunk = compiler.compile()?;
-    let mut vm = vm::VM::with_chunk(&chunk);
+    let code = compiler.compile()?;
+    let mut vm = vm::VM::with_code(code);
     vm.run()
 }

@@ -1,7 +1,7 @@
 use std::{mem, rc::Rc};
 
 use crate::{
-    bytecode::{self, OpCode, Precedence, Value},
+    bytecode::{self, FunctionObj, OpCode, Precedence, Value},
     scanner::Scanner,
     token::{self, Token, TokenKind},
     Error, Result,
@@ -43,7 +43,8 @@ pub struct Compiler<'a> {
     current: Token<'a>,
     previous: Token<'a>,
 
-    chunk: bytecode::Chunk,
+    code: FunctionObj,
+    curr_func: Option<FunctionObj>,
 
     locals: Vec<Local<'a>>,
     scope_depth: u32,
@@ -51,29 +52,43 @@ pub struct Compiler<'a> {
 
 impl<'a> Compiler<'a> {
     pub fn new(source: &'a str) -> Self {
+        let mut locals = Vec::with_capacity(256);
+        locals.push(Local::new("", Some(0)));
         Self {
             scanner: Scanner::new(source),
             current: Token::none(),
             previous: Token::none(),
             error_count: 0,
             scope_depth: 0,
-            chunk: bytecode::Chunk::new(),
-            locals: Vec::with_capacity(256),
+            code: FunctionObj::new_main(),
+            curr_func: None,
+            locals,
         }
     }
+
+    fn curr_chunk(&mut self) -> &mut bytecode::Chunk {
+        if let Some(fun) = &mut self.curr_func {
+            fun.chunk_mut()
+        } else {
+            self.code.chunk_mut()
+        }
+    }
+
     fn emit_ins(&mut self, ins: bytecode::OpCode) {
-        self.chunk.write_ins(ins, self.previous.line());
+        let line = self.previous.line();
+        self.curr_chunk().write_ins(ins, line);
     }
 
     fn add_const(&mut self, val: Value) -> u16 {
-        self.chunk.add_const(val)
+        self.curr_chunk().add_const(val)
     }
 
     fn emit_const_ins(&mut self, value: Value) {
-        self.chunk.add_const_ins(value, self.previous.line())
+        let line = self.previous.line();
+        self.curr_chunk().add_const_ins(value, line);
     }
 
-    pub fn compile(mut self) -> Result<bytecode::Chunk> {
+    pub fn compile(mut self) -> Result<FunctionObj> {
         self.advance()?;
         while !self.is_at_end() {
             self.declaration();
@@ -86,9 +101,9 @@ impl<'a> Compiler<'a> {
         }
 
         #[cfg(feature = "print_code")]
-        self.chunk.disassemble("code");
+        self.code.disassemble();
 
-        Ok(self.chunk)
+        Ok(self.code)
     }
 
     fn synchronize(&mut self) {
@@ -215,7 +230,7 @@ impl<'a> Compiler<'a> {
     fn while_stmt(&mut self) -> Result<()> {
         self.advance()?;
 
-        let loop_start = self.chunk.len();
+        let loop_start = self.curr_chunk().len();
 
         self.consume(TokenKind::LeftParen, "Expect '(' after 'while'.")?;
         self.expression()?;
@@ -256,7 +271,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn emit_loop(&mut self, loop_start: usize) -> Result<()> {
-        let offset = self.chunk.len() - loop_start + 1;
+        let offset = self.curr_chunk().len() - loop_start + 1;
         if offset > u16::MAX as usize {
             return Err(self.error_at_previous("Loop body too large."));
         }
@@ -266,14 +281,13 @@ impl<'a> Compiler<'a> {
 
     fn emit_jump(&mut self, ins: OpCode) -> usize {
         self.emit_ins(ins);
-        self.chunk.len() - 1
+        self.curr_chunk().len() - 1
     }
 
     fn patch_jump(&mut self, index: usize) {
-        let jump_offset = (self.chunk.len() - index - 1) as u16;
+        let jump_offset = (self.curr_chunk().len() - index - 1) as u16;
 
-        let code = self.chunk.code_mut();
-
+        let code = self.curr_chunk().code_mut();
         match code[index] {
             OpCode::JumpIfFalse(None) => code[index] = OpCode::JumpIfFalse(Some(jump_offset)),
             OpCode::Jump(None) => code[index] = OpCode::Jump(Some(jump_offset)),

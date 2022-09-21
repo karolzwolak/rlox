@@ -2,56 +2,122 @@ use std::io;
 use std::io::Write;
 use std::{collections::HashMap, rc::Rc};
 
+use crate::bytecode::{Chunk, FunctionObj};
 use crate::{
     bytecode::{self, OpCode, Value},
     Error, Result,
 };
-pub struct VM<'a> {
-    chunk: &'a bytecode::Chunk,
-    lock: io::StdoutLock<'a>,
+
+struct CallFrame {
     ip: usize,
+    stack_start: usize,
+    function: Rc<FunctionObj>,
+}
+
+impl CallFrame {
+    fn new(ip: usize, stack_start: usize, function: Rc<FunctionObj>) -> Self {
+        Self {
+            ip,
+            stack_start,
+            function,
+        }
+    }
+}
+
+pub struct VM<'a> {
+    frames: Vec<CallFrame>,
+    lock: io::StdoutLock<'a>,
     stack: Vec<bytecode::Value>,
-    globals: HashMap<&'a str, Value>,
+    globals: HashMap<Rc<String>, Value>,
 }
 
 impl<'a> VM<'a> {
     const STACK_MAX: usize = 256;
-    pub fn with_chunk(chunk: &'a bytecode::Chunk) -> Self {
+    pub fn with_code(code: FunctionObj) -> Self {
+        let mut stack = Vec::with_capacity(Self::STACK_MAX);
+        let code = Rc::new(code);
+        stack.push(Value::Function(Rc::clone(&code)));
+        let frame = CallFrame::new(0, 0, code);
         Self {
-            chunk,
+            frames: vec![frame],
             lock: io::stdout().lock(),
-            ip: 0,
-            stack: Vec::with_capacity(Self::STACK_MAX),
+            stack,
             globals: HashMap::new(),
         }
     }
 
-    fn _trace(&self) {
-        println!("stack: {:?}", self.stack);
-        println!("ins:   {}", self.chunk.dissassemble_ins(self.ip));
+    fn frame_stack(&self) -> &[Value] {
+        &self.stack[self.curr_frame().stack_start..]
+    }
+
+    fn frame_stack_mut(&mut self) -> &mut [Value] {
+        let start = self.curr_frame().stack_start;
+        &mut self.stack[start..]
+    }
+
+    fn stack_get(&self, index: usize) -> &Value {
+        &self.stack[self.curr_frame().stack_start + index]
+    }
+    fn stack_get_mut(&mut self, index: usize) -> &mut Value {
+        let start = self.curr_frame().stack_start;
+        &mut self.stack[start + index]
+    }
+
+    fn curr_frame(&self) -> &CallFrame {
+        // theres always a frame, because all the code is wrapped in implicit 1main function
+        self.frames.last().unwrap()
+    }
+
+    fn curr_frame_mut(&mut self) -> &mut CallFrame {
+        self.frames.last_mut().unwrap()
+    }
+
+    fn chunk(&self) -> &bytecode::Chunk {
+        self.frames.last().unwrap().function.chunk()
+    }
+
+    fn ip(&self) -> usize {
+        self.curr_frame().ip
+    }
+
+    fn ip_mut(&mut self) -> &mut usize {
+        &mut self.curr_frame_mut().ip
+    }
+
+    fn _trace(&mut self) {
+        writeln!(self.lock, "stack: {:?}", self.stack).unwrap();
+        writeln!(
+            self.lock,
+            "ins:   {}",
+            self.chunk().dissassemble_ins(self.ip())
+        )
+        .unwrap();
     }
 
     pub fn run(&mut self) -> crate::Result<()> {
+        #[cfg(feature = "trace")]
+        writeln!(self.lock, "=== TRACE ===").unwrap();
+
         while !self.is_at_end() {
             #[cfg(feature = "trace")]
             self._trace();
 
-            let ins = self.advance();
+            let ins = *self.advance();
 
-            let cont = self.execute_ins(*ins)?;
+            let cont = self.execute_ins(ins)?;
             if !cont {
                 break;
             }
         }
-        if !self.stack.is_empty() {
-            eprintln!("WARGING: stack is not empty at the end of execution");
+
+        if !self.stack.len() == 1 {
+            eprintln!("WARNING: stack is not empty at the end of execution");
         }
         Ok(())
     }
 
     fn execute_ins(&mut self, ins: OpCode) -> Result<bool> {
         // return if we should continue
-
         match ins {
             OpCode::Constant(index) => self.add_const(index),
             OpCode::Print => self.print()?,
@@ -62,26 +128,26 @@ impl<'a> VM<'a> {
             OpCode::GetGlobal(index) => self.get_global(index)?,
             OpCode::SetGlobal(index) => self.set_global(index)?,
 
-            OpCode::GetLocal(offset) => self.push_stack(self.stack[offset as usize].clone()),
+            OpCode::GetLocal(offset) => self.push_stack(self.stack_get(offset as usize).clone()),
             OpCode::SetLocal(offset) => {
-                self.stack[offset as usize] = self.peek_stack_unwrapped(0).clone();
+                *self.stack_get_mut(offset as usize) = self.peek_stack_unwrapped(0).clone();
             }
 
             OpCode::JumpIfFalse(offset) => {
                 let offset =
                     offset.expect("Internal error: jump instruction has no offset") as usize;
                 if !self.peek_stack_unwrapped(0).is_truthy() {
-                    self.ip += offset;
+                    *self.ip_mut() += offset;
                 }
             }
             OpCode::Jump(offset) => {
                 let offset =
                     offset.expect("Internal error: jump instruction has no offset") as usize;
-                self.ip += offset;
+                *self.ip_mut() += offset;
             }
 
             OpCode::Loop(offset) => {
-                self.ip -= offset as usize;
+                *self.ip_mut() -= offset as usize;
             }
 
             OpCode::True => self.push_stack(Value::Boolean(true)),
@@ -102,17 +168,17 @@ impl<'a> VM<'a> {
     }
 
     fn define_global(&mut self, index: u16) {
-        if let Value::String(s) = self.chunk.get_const(index) {
+        if let Value::String(s) = self.chunk().get_const(index) {
+            let ident = Rc::clone(s);
             let val = self.pop_stack();
-            self.globals.insert(s.as_str(), val);
+            self.globals.insert(ident, val);
         } else {
             panic!("define global: expected string")
         }
     }
 
     fn get_global(&mut self, index: u16) -> Result<()> {
-        if let Value::String(s) = self.chunk.get_const(index) {
-            let ident = s.as_str();
+        if let Value::String(ident) = self.chunk().get_const(index) {
             let val = self.globals.get(ident).ok_or_else(|| {
                 self.runtime_error(&format!("Undefined global variable '{ident}'"))
             })?;
@@ -125,10 +191,11 @@ impl<'a> VM<'a> {
     }
 
     fn set_global(&mut self, index: u16) -> Result<()> {
-        if let Value::String(s) = self.chunk.get_const(index) {
-            let ident = s.as_str();
+        if let Value::String(s) = self.chunk().get_const(index) {
+            let ident = Rc::clone(s);
             let val = self.peek_stack_unwrapped(0).clone();
-            if self.globals.contains_key(ident) {
+            let present = self.globals.contains_key(&ident);
+            if present {
                 self.globals.insert(ident, val);
                 Ok(())
             } else {
@@ -147,7 +214,7 @@ impl<'a> VM<'a> {
 
     fn add_const(&mut self, id: u16) {
         // todo- remove that clone
-        self.push_stack(self.chunk.get_const(id).clone());
+        self.push_stack(self.chunk().get_const(id).clone());
     }
 
     fn push_stack(&mut self, v: Value) {
@@ -274,53 +341,17 @@ impl<'a> VM<'a> {
         Error::from(format!(
             "Runtime error : {} at {}",
             msg,
-            self.chunk.dissassemble_ins(self.ip)
+            self.chunk()
+                .dissassemble_ins(self.curr_frame().stack_start + self.ip())
         ))
     }
 
     fn is_at_end(&self) -> bool {
-        self.ip >= self.chunk.code().len()
+        self.ip() >= self.chunk().code().len()
     }
 
-    fn advance(&mut self) -> &'a bytecode::OpCode {
-        let ins = &self.chunk.code()[self.ip];
-        self.ip += 1;
-        ins
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::bytecode::{Chunk, OpCode};
-
-    #[test]
-    fn test_ok_interpret() {
-        let mut chunk = Chunk::new();
-        chunk.add_const_ins(Value::Number(1.2), 123);
-        chunk.add_const_ins(Value::Number(3.4), 123);
-        chunk.write_ins(OpCode::Add, 123);
-        chunk.write_ins(OpCode::Return, 123);
-
-        let mut vm = VM::with_chunk(&chunk);
-        assert!(matches!(vm.run(), Ok(())));
-    }
-    #[test]
-    fn test_binary_ops() {
-        let mut chunk = Chunk::new();
-
-        chunk.add_const_ins(Value::Number(5.), 123);
-        chunk.add_const_ins(Value::Number(3.), 123);
-        chunk.write_ins(OpCode::Add, 123);
-        chunk.add_const_ins(Value::Number(4.), 123);
-        chunk.write_ins(OpCode::Divide, 123);
-        chunk.write_ins(OpCode::Negate, 123);
-        chunk.add_const_ins(Value::Number(2.5), 123);
-
-        chunk.write_ins(OpCode::Multiply, 123);
-
-        let mut vm = VM::with_chunk(&chunk);
-        assert!(matches!(vm.run(), Ok(())));
-        assert_eq!(vm.stack, vec![Value::Number(-5.)]);
+    fn advance(&mut self) -> &bytecode::OpCode {
+        *self.ip_mut() += 1;
+        &self.chunk().code()[self.ip() - 1]
     }
 }
