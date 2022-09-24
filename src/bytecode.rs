@@ -1,6 +1,6 @@
 use std::{fmt, rc::Rc};
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum OpCode {
     Constant(u16),
     Return,
@@ -48,6 +48,11 @@ pub struct FunctionObj {
     chunk: Chunk,
 }
 
+pub enum FunctionKind {
+    Function,
+    Method,
+}
+
 impl fmt::Display for FunctionObj {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "<fn {}>", self.name)
@@ -55,12 +60,16 @@ impl fmt::Display for FunctionObj {
 }
 
 impl FunctionObj {
-    pub fn new(name: String, arity: u8, code: Chunk) -> Self {
+    pub fn new(name: String, arity: u8) -> Self {
         Self {
             name,
             arity,
-            chunk: code,
+            chunk: Chunk::new(),
         }
+    }
+
+    pub fn with_chunk(name: String, arity: u8, chunk: Chunk) -> Self {
+        Self { name, arity, chunk }
     }
 
     pub fn new_main() -> Self {

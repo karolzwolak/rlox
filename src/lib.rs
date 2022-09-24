@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     fs,
     io::{self, Write},
 };
@@ -36,7 +37,8 @@ pub fn run_file(path: String) -> Result<()> {
 }
 
 fn interpret(source: String) -> Result<()> {
-    let compiler = compiler::Compiler::new(&source);
+    let scanner = RefCell::new(scanner::Scanner::new(&source));
+    let compiler = compiler::Compiler::with_scanner(&scanner);
     let code = compiler.compile()?;
     let mut vm = vm::VM::with_code(code);
     vm.run()

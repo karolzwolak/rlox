@@ -1,4 +1,4 @@
-use std::{mem, rc::Rc};
+use std::{cell::RefCell, mem, rc::Rc};
 
 use crate::{
     bytecode::{self, FunctionObj, OpCode, Precedence, Value},
@@ -37,41 +37,62 @@ impl<'a> Local<'a> {
 }
 
 pub struct Compiler<'a> {
-    scanner: Scanner<'a>,
+    scanner: &'a RefCell<Scanner<'a>>,
     error_count: usize,
 
     current: Token<'a>,
     previous: Token<'a>,
 
-    code: FunctionObj,
-    curr_func: Option<FunctionObj>,
+    fun: FunctionObj,
 
     locals: Vec<Local<'a>>,
     scope_depth: u32,
 }
 
 impl<'a> Compiler<'a> {
-    pub fn new(source: &'a str) -> Self {
+    // pub fn with_source(source: &'a str) -> Self {
+    //     Self::new(Rc::new(Scanner::new(source)), FunctionObj::new_main())
+    // }
+
+    fn new(
+        scanner: &'a RefCell<Scanner<'a>>,
+        fun: FunctionObj,
+        previous: Token<'a>,
+        current: Token<'a>,
+    ) -> Self {
         let mut locals = Vec::with_capacity(256);
         locals.push(Local::new("", Some(0)));
+
         Self {
-            scanner: Scanner::new(source),
-            current: Token::none(),
-            previous: Token::none(),
+            scanner,
             error_count: 0,
+            fun,
+            locals: Vec::new(),
             scope_depth: 0,
-            code: FunctionObj::new_main(),
-            curr_func: None,
-            locals,
+            previous,
+            current,
         }
     }
 
+    pub fn with_scanner(scanner: &'a RefCell<Scanner<'a>>) -> Self {
+        Self::with_fun(scanner, FunctionObj::new_main())
+    }
+
+    pub fn with_fun(scanner: &'a RefCell<Scanner<'a>>, fun: FunctionObj) -> Self {
+        Self::new(scanner, fun, Token::none(), Token::none())
+    }
+
+    fn with_tokens(
+        scanner: &'a RefCell<Scanner<'a>>,
+        fun: FunctionObj,
+        previous: Token<'a>,
+        current: Token<'a>,
+    ) -> Self {
+        Self::new(scanner, fun, previous, current)
+    }
+
     fn curr_chunk(&mut self) -> &mut bytecode::Chunk {
-        if let Some(fun) = &mut self.curr_func {
-            fun.chunk_mut()
-        } else {
-            self.code.chunk_mut()
-        }
+        self.fun.chunk_mut()
     }
 
     fn emit_ins(&mut self, ins: bytecode::OpCode) {
@@ -103,14 +124,14 @@ impl<'a> Compiler<'a> {
         #[cfg(feature = "print_code")]
         self.code.disassemble();
 
-        Ok(self.code)
+        Ok(self.fun)
     }
 
     fn synchronize(&mut self) {
         let curr = loop {
-            if let Ok(token) = self.scanner.scan_token() {
+            if let Ok(token) = self.scanner.borrow_mut().scan_token() {
                 match token.kind() {
-                    TokenKind::Semicolon => match self.scanner.scan_token() {
+                    TokenKind::Semicolon => match self.scanner.borrow_mut().scan_token() {
                         Ok(next) => {
                             self.previous = token;
                             break next;
@@ -132,7 +153,7 @@ impl<'a> Compiler<'a> {
                     | TokenKind::Return => break token,
                     _ => {}
                 }
-            }
+            };
         };
 
         self.previous = mem::replace(&mut self.current, curr);
@@ -147,6 +168,7 @@ impl<'a> Compiler<'a> {
         // true means it was successful
         let result = match self.current.kind() {
             TokenKind::Var => self.var_decl(),
+            TokenKind::Fun => self.fun_decl(),
             _ => self.statement(),
         };
         if let Err(error) = result {
@@ -155,6 +177,75 @@ impl<'a> Compiler<'a> {
             return false;
         }
         true
+    }
+
+    fn fun_decl(&mut self) -> Result<()> {
+        self.advance()?;
+
+        let (id, name) = self.declare_variable()?;
+        let name = name.to_string();
+        self.mark_initialized();
+
+        let prev = mem::replace(&mut self.previous, Token::none());
+        let curr = mem::replace(&mut self.current, Token::none());
+
+        let fun_compiler =
+            Compiler::with_tokens(self.scanner, FunctionObj::new(name, 0), prev, curr);
+
+        let (fun, prev, curr) = fun_compiler.compile_fun()?;
+
+        self.previous = prev;
+        self.current = curr;
+
+        self.emit_const_ins(Value::Function(Rc::new(fun)));
+        self.define_variable(id);
+        Ok(())
+    }
+
+    // fn func_scope(&mut self, name: String) -> Result<()> {
+    //     let old_scope = std::mem::replace(&mut self.scope_depth, 1);
+    //     let old_start = std::mem::replace(
+    //         &mut self.fun_local_start,
+    //         self.locals.len().saturating_sub(1),
+    //     );
+    //     let new_func = FunctionObj::new(name, 0);
+
+    //     let mut func = std::mem::replace(&mut self.curr_func, Some(new_func));
+
+    //     let result = self.parse_fun();
+
+    //     self.end_scope();
+
+    //     self.scope_depth = old_scope;
+    //     self.fun_local_start = old_start;
+    //     std::mem::swap(&mut self.curr_func, &mut func);
+
+    //     let func = Rc::new(func.unwrap());
+    //     self.emit_const_ins(Value::Function(func));
+
+    //     result
+    // }
+
+    fn parse_fun(&mut self) -> Result<()> {
+        self.scope_depth += 1;
+        self.consume(TokenKind::LeftParen, "Expect '(' after function name.")?;
+        self.consume(TokenKind::RightParen, "Expect ')' after function name.")?;
+        self.consume(TokenKind::LeftBrace, "Expect '{' before function body.")?;
+
+        self.block()?;
+
+        Ok(())
+    }
+
+    fn compile_fun(mut self) -> Result<(FunctionObj, Token<'a>, Token<'a>)> {
+        let result = self.parse_fun();
+
+        #[cfg(feature = "print_code")]
+        self.code.disassemble();
+
+        result?;
+
+        Ok((self.fun, self.previous, self.current))
     }
 
     fn statement(&mut self) -> Result<()> {
@@ -324,7 +415,7 @@ impl<'a> Compiler<'a> {
 
     fn var_decl(&mut self) -> Result<()> {
         self.advance()?;
-        let id = self.declare_variable()?;
+        let (id, _) = self.declare_variable()?;
 
         if self.match_curr(TokenKind::Equal)? {
             self.expression()?;
@@ -357,14 +448,19 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn declare_variable(&mut self) -> Result<u16> {
-        let name = self.consume_ident("Expect variable name.")?;
+    fn declare_variable(&mut self) -> Result<(u16, &str)> {
+        let msg = match self.previous.kind() {
+            TokenKind::Var => "Expect variable name.",
+            TokenKind::Fun => "Expect function name.",
+            _ => unreachable!("Internal error: declare_variable called with invalid token"),
+        };
+        let name = self.consume_ident(msg)?;
         if self.scope_depth == 0 {
             // a global
-            Ok(self.write_ident_constant(name))
+            Ok((self.write_ident_constant(name), name))
         } else {
             self.declare_local(name)?;
-            Ok(0)
+            Ok((0, name))
         }
     }
 
@@ -377,6 +473,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn mark_initialized(&mut self) {
+        if self.scope_depth == 0 {
+            return;
+        }
         self.locals.last_mut().unwrap().depth = Some(self.scope_depth);
     }
 
@@ -394,13 +493,12 @@ impl<'a> Compiler<'a> {
             } else {
                 self.emit_ins(OpCode::SetGlobal(arg));
             }
+        } else if is_local {
+            self.emit_ins(OpCode::GetLocal(arg));
         } else {
-            if is_local {
-                self.emit_ins(OpCode::GetLocal(arg));
-            } else {
-                self.emit_ins(OpCode::GetGlobal(arg));
-            }
+            self.emit_ins(OpCode::GetGlobal(arg));
         }
+
         Ok(())
     }
 
@@ -450,7 +548,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn advance(&mut self) -> Result<()> {
-        match self.scanner.scan_token() {
+        match self.scanner.borrow_mut().scan_token() {
             Ok(token) => {
                 self.previous = mem::replace(&mut self.current, token);
                 Ok(())

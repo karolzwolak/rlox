@@ -2,7 +2,7 @@ use std::io;
 use std::io::Write;
 use std::{collections::HashMap, rc::Rc};
 
-use crate::bytecode::{Chunk, FunctionObj};
+use crate::bytecode::FunctionObj;
 use crate::{
     bytecode::{self, OpCode, Value},
     Error, Result,
