@@ -85,10 +85,18 @@ impl<'a> VM<'a> {
     }
 
     fn _trace(&mut self) {
-        writeln!(self.lock, "stack: {:?}", self.stack).unwrap();
+        // writeln!(self.lock, "stack: {:?}", self.stack).unwrap();
+        write!(self.lock, "stack: [").unwrap();
+        for (i, v) in self.stack.iter().enumerate() {
+            if i == self.curr_frame().stack_start {
+                write!(self.lock, " | ").unwrap();
+            }
+            write!(self.lock, "{}, ", v).unwrap();
+        }
+        writeln!(self.lock, "]").unwrap();
         writeln!(
             self.lock,
-            "ins:   {}",
+            "ins:   {}\n",
             self.chunk().dissassemble_ins(self.ip())
         )
         .unwrap();

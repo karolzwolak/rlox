@@ -242,7 +242,20 @@ impl<'a> Compiler<'a> {
     fn parse_fun(&mut self) -> Result<()> {
         self.scope_depth += 1;
         self.consume(TokenKind::LeftParen, "Expect '(' after function name.")?;
-        self.consume(TokenKind::RightParen, "Expect ')' after function name.")?;
+        if !self.check_curr(TokenKind::RightParen) {
+            loop {
+                if self.fun.arity() == u8::MAX {
+                    self.error_at_current("Cannot have more than 255 parameters.");
+                }
+                *self.fun.arity_mut() += 1;
+                let (id, _) = self.declare_variable()?;
+                self.define_variable(id);
+                if !self.match_curr(TokenKind::Comma)? {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenKind::RightParen, "Expect ')' after parameters")?;
         self.consume(TokenKind::LeftBrace, "Expect '{' before function body.")?;
 
         self.block()?;
@@ -463,9 +476,8 @@ impl<'a> Compiler<'a> {
 
     fn declare_variable(&mut self) -> Result<(u16, &str)> {
         let msg = match self.previous_kind() {
-            TokenKind::Var => "Expect variable name.",
             TokenKind::Fun => "Expect function name.",
-            _ => unreachable!("Internal error: declare_variable called with invalid token"),
+            _ => "Expect variable name.",
         };
         let name = self.consume_ident(msg)?;
         if self.scope_depth == 0 {

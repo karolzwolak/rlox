@@ -55,7 +55,7 @@ pub enum FunctionKind {
 
 impl fmt::Display for FunctionObj {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<fn {}>", self.name)
+        write!(f, "<fn {}({})>", self.name, self.arity)
     }
 }
 
@@ -86,6 +86,10 @@ impl FunctionObj {
 
     pub fn arity(&self) -> u8 {
         self.arity
+    }
+
+    pub fn arity_mut(&mut self) -> &mut u8 {
+        &mut self.arity
     }
 
     pub fn chunk(&self) -> &Chunk {
@@ -127,7 +131,7 @@ impl fmt::Display for Value {
             Value::String(s) => write!(f, "{}", s),
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Nil => write!(f, "<Nil>"),
-            Value::Function(fun) => write!(f, "<Fn {}>", fun.name),
+            Value::Function(fun) => write!(f, "{}", fun),
         }
     }
 }
@@ -263,11 +267,7 @@ impl OpCode {
     pub fn dissassemble(&self, chunk: &Chunk) -> String {
         match self {
             OpCode::Constant(index) => {
-                format!(
-                    "OP_CONSTANT<#{:04}, '{:?}'>",
-                    index,
-                    chunk.get_const(*index)
-                )
+                format!("OP_CONSTANT<#{:04}, '{}'>", index, chunk.get_const(*index))
             }
             OpCode::Return => "OP_RETURN".to_string(),
             OpCode::Print => "OP_PRINT".to_string(),
