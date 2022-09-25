@@ -37,8 +37,9 @@ pub fn run_file(path: String) -> Result<()> {
 }
 
 fn interpret(source: String) -> Result<()> {
-    let scanner = RefCell::new(scanner::Scanner::new(&source));
-    let compiler = compiler::Compiler::with_scanner(&scanner);
+    let parser = RefCell::new(compiler::Parser::with_source(&source));
+    let compiler = compiler::Compiler::main_compiler(&parser);
+
     let code = compiler.compile()?;
     let mut vm = vm::VM::with_code(code);
     vm.run()

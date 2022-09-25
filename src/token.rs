@@ -149,8 +149,8 @@ impl<'a> Token<'a> {
     pub fn none() -> Self {
         Self::new(TokenKind::None, 0, 0)
     }
-    pub fn kind(&self) -> &TokenKind<'a> {
-        &self.kind
+    pub fn kind(&self) -> TokenKind<'a> {
+        self.kind
     }
     pub fn line(&self) -> usize {
         self.line

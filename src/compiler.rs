@@ -36,12 +36,41 @@ impl<'a> Local<'a> {
     }
 }
 
-pub struct Compiler<'a> {
-    scanner: &'a RefCell<Scanner<'a>>,
-    error_count: usize,
-
+pub struct Parser<'a> {
+    scanner: Scanner<'a>,
     current: Token<'a>,
     previous: Token<'a>,
+}
+
+impl<'a> Parser<'a> {
+    fn new(scanner: Scanner<'a>, current: Token<'a>, previous: Token<'a>) -> Self {
+        Self {
+            scanner,
+            current,
+            previous,
+        }
+    }
+
+    pub fn with_source(source: &'a str) -> Self {
+        let scanner = Scanner::new(source);
+        Self::new(scanner, Token::none(), Token::none())
+    }
+
+    fn current(&self) -> &Token<'a> {
+        &self.current
+    }
+
+    fn previous(&self) -> &Token<'a> {
+        &self.previous
+    }
+
+    fn update_tokens(&mut self, new: Token<'a>) {
+        self.previous = mem::replace(&mut self.current, new);
+    }
+}
+pub struct Compiler<'a> {
+    parser: &'a RefCell<Parser<'a>>,
+    error_count: usize,
 
     fun: FunctionObj,
 
@@ -54,41 +83,32 @@ impl<'a> Compiler<'a> {
     //     Self::new(Rc::new(Scanner::new(source)), FunctionObj::new_main())
     // }
 
-    fn new(
-        scanner: &'a RefCell<Scanner<'a>>,
-        fun: FunctionObj,
-        previous: Token<'a>,
-        current: Token<'a>,
-    ) -> Self {
+    pub fn new(parser: &'a RefCell<Parser<'a>>, fun: FunctionObj) -> Self {
         let mut locals = Vec::with_capacity(256);
         locals.push(Local::new("", Some(0)));
-
         Self {
-            scanner,
+            parser,
             error_count: 0,
             fun,
-            locals: Vec::new(),
+            locals,
             scope_depth: 0,
-            previous,
-            current,
         }
     }
 
-    pub fn with_scanner(scanner: &'a RefCell<Scanner<'a>>) -> Self {
-        Self::with_fun(scanner, FunctionObj::new_main())
+    pub fn main_compiler(parser: &'a RefCell<Parser<'a>>) -> Self {
+        Self::new(parser, FunctionObj::new_main())
     }
 
-    pub fn with_fun(scanner: &'a RefCell<Scanner<'a>>, fun: FunctionObj) -> Self {
-        Self::new(scanner, fun, Token::none(), Token::none())
+    fn scan_token(&mut self) -> Result<Token<'a>> {
+        self.parser.borrow_mut().scanner.scan_token()
     }
 
-    fn with_tokens(
-        scanner: &'a RefCell<Scanner<'a>>,
-        fun: FunctionObj,
-        previous: Token<'a>,
-        current: Token<'a>,
-    ) -> Self {
-        Self::new(scanner, fun, previous, current)
+    fn current_kind(&self) -> TokenKind<'a> {
+        self.parser.borrow().current().kind()
+    }
+
+    fn previous_kind(&self) -> TokenKind<'a> {
+        self.parser.borrow().previous().kind()
     }
 
     fn curr_chunk(&mut self) -> &mut bytecode::Chunk {
@@ -96,7 +116,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn emit_ins(&mut self, ins: bytecode::OpCode) {
-        let line = self.previous.line();
+        let line = self.parser.borrow().previous().line();
         self.curr_chunk().write_ins(ins, line);
     }
 
@@ -105,7 +125,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn emit_const_ins(&mut self, value: Value) {
-        let line = self.previous.line();
+        let line = self.parser.borrow().previous().line();
         self.curr_chunk().add_const_ins(value, line);
     }
 
@@ -129,11 +149,11 @@ impl<'a> Compiler<'a> {
 
     fn synchronize(&mut self) {
         let curr = loop {
-            if let Ok(token) = self.scanner.borrow_mut().scan_token() {
+            if let Ok(token) = self.scan_token() {
                 match token.kind() {
-                    TokenKind::Semicolon => match self.scanner.borrow_mut().scan_token() {
+                    TokenKind::Semicolon => match self.scan_token() {
                         Ok(next) => {
-                            self.previous = token;
+                            self.parser.borrow_mut().previous = token;
                             break next;
                         }
 
@@ -155,8 +175,7 @@ impl<'a> Compiler<'a> {
                 }
             };
         };
-
-        self.previous = mem::replace(&mut self.current, curr);
+        self.parser.borrow_mut().update_tokens(curr);
     }
 
     fn write_ident_constant(&mut self, ident: &'a str) -> u16 {
@@ -166,7 +185,7 @@ impl<'a> Compiler<'a> {
 
     fn declaration(&mut self) -> bool {
         // true means it was successful
-        let result = match self.current.kind() {
+        let result = match self.current_kind() {
             TokenKind::Var => self.var_decl(),
             TokenKind::Fun => self.fun_decl(),
             _ => self.statement(),
@@ -184,18 +203,12 @@ impl<'a> Compiler<'a> {
 
         let (id, name) = self.declare_variable()?;
         let name = name.to_string();
+
         self.mark_initialized();
 
-        let prev = mem::replace(&mut self.previous, Token::none());
-        let curr = mem::replace(&mut self.current, Token::none());
+        let fun_compiler = Compiler::new(self.parser, FunctionObj::new(name, 0));
 
-        let fun_compiler =
-            Compiler::with_tokens(self.scanner, FunctionObj::new(name, 0), prev, curr);
-
-        let (fun, prev, curr) = fun_compiler.compile_fun()?;
-
-        self.previous = prev;
-        self.current = curr;
+        let fun = fun_compiler.compile_fun()?;
 
         self.emit_const_ins(Value::Function(Rc::new(fun)));
         self.define_variable(id);
@@ -237,7 +250,7 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    fn compile_fun(mut self) -> Result<(FunctionObj, Token<'a>, Token<'a>)> {
+    fn compile_fun(mut self) -> Result<FunctionObj> {
         let result = self.parse_fun();
 
         #[cfg(feature = "print_code")]
@@ -245,11 +258,11 @@ impl<'a> Compiler<'a> {
 
         result?;
 
-        Ok((self.fun, self.previous, self.current))
+        Ok(self.fun)
     }
 
     fn statement(&mut self) -> Result<()> {
-        match self.current.kind() {
+        match self.current_kind() {
             TokenKind::Print => self.print_stmt(),
             TokenKind::LeftBrace => self.block(),
             TokenKind::If => self.if_stmt(),
@@ -271,7 +284,7 @@ impl<'a> Compiler<'a> {
 
     fn parse_for(&mut self) -> Result<()> {
         self.consume(TokenKind::LeftParen, "Expect '(' after 'for'.")?;
-        match self.current.kind() {
+        match self.current_kind() {
             TokenKind::Semicolon => {}
             TokenKind::Var => {
                 self.var_decl()?;
@@ -449,7 +462,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn declare_variable(&mut self) -> Result<(u16, &str)> {
-        let msg = match self.previous.kind() {
+        let msg = match self.previous_kind() {
             TokenKind::Var => "Expect variable name.",
             TokenKind::Fun => "Expect function name.",
             _ => unreachable!("Internal error: declare_variable called with invalid token"),
@@ -544,13 +557,14 @@ impl<'a> Compiler<'a> {
     }
 
     fn check_curr(&self, kind: TokenKind) -> bool {
-        *self.current.kind() == kind
+        self.current_kind() == kind
     }
 
     fn advance(&mut self) -> Result<()> {
-        match self.scanner.borrow_mut().scan_token() {
+        let token = self.scan_token();
+        match token {
             Ok(token) => {
-                self.previous = mem::replace(&mut self.current, token);
+                self.parser.borrow_mut().update_tokens(token);
                 Ok(())
             }
             Err(error) => Err(error),
@@ -572,11 +586,11 @@ impl<'a> Compiler<'a> {
     }
 
     fn error_at_previous(&mut self, msg: &str) -> Error {
-        self.error_at(&self.previous, msg)
+        self.error_at(self.parser.borrow().previous(), msg)
     }
 
     fn error_at_current(&mut self, msg: &str) -> Error {
-        self.error_at(&self.current, msg)
+        self.error_at(self.parser.borrow().current(), msg)
     }
 
     fn consume(&mut self, expected: TokenKind, msg: &str) -> Result<()> {
@@ -589,7 +603,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn consume_ident(&mut self, msg: &str) -> Result<&'a str> {
-        if let TokenKind::Identifier(ident) = *self.current.kind() {
+        if let TokenKind::Identifier(ident) = self.current_kind() {
             self.advance()?;
             Ok(ident)
         } else {
@@ -607,7 +621,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn unary(&mut self) -> Result<()> {
-        let op = *self.previous.kind();
+        let op = self.previous_kind();
         self.parse_precedence(Precedence::Unary)?;
         self.emit_ins(match op {
             TokenKind::Bang => OpCode::Not,
@@ -621,11 +635,11 @@ impl<'a> Compiler<'a> {
     fn parse_precedence(&mut self, precedence: Precedence) -> Result<()> {
         self.advance()?;
         let can_assign = precedence <= Precedence::Assignment;
-        self.prefix(*self.previous.kind(), can_assign)?;
+        self.prefix(self.previous_kind(), can_assign)?;
 
-        while precedence <= self.current.kind().precedence() {
+        while precedence <= self.current_kind().precedence() {
             self.advance()?;
-            self.infix(*self.previous.kind())?;
+            self.infix(self.previous_kind())?;
         }
         if can_assign && self.match_curr(TokenKind::Equal)? {
             return Err(self.error_at_previous("Invalid assignment target."));
@@ -634,7 +648,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn binary(&mut self) -> Result<()> {
-        let operator = *self.previous.kind();
+        let operator = self.previous_kind();
         let precedence = operator.precedence();
         self.parse_precedence(precedence.higher())?;
 
@@ -689,7 +703,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn literal(&mut self) {
-        match self.previous.kind() {
+        match self.previous_kind() {
             TokenKind::True => self.emit_ins(OpCode::True),
             TokenKind::False => self.emit_ins(OpCode::False),
             TokenKind::Nil => self.emit_ins(OpCode::Nil),
