@@ -19,6 +19,8 @@ pub enum OpCode {
 
     Loop(u16),
 
+    Call(u8),
+
     Negate,
     Not,
     Add,
@@ -60,6 +62,7 @@ impl fmt::Display for FunctionObj {
 }
 
 impl FunctionObj {
+    const MAIN_FUNC_NAME: &'static str = "<Main>";
     pub fn new(name: String, arity: u8) -> Self {
         Self {
             name,
@@ -74,10 +77,14 @@ impl FunctionObj {
 
     pub fn new_main() -> Self {
         Self {
-            name: String::from("main"),
+            name: Self::MAIN_FUNC_NAME.to_string(),
             arity: 0,
             chunk: Chunk::new(),
         }
+    }
+
+    pub fn is_main(&self) -> bool {
+        self.name == Self::MAIN_FUNC_NAME
     }
 
     pub fn name(&self) -> &str {
@@ -218,6 +225,10 @@ impl Chunk {
         &self.constants[index as usize]
     }
 
+    pub fn get_line(&self, index: usize) -> usize {
+        self.lines[index]
+    }
+
     pub fn len(&self) -> usize {
         self.code.len()
     }
@@ -284,6 +295,8 @@ impl OpCode {
             OpCode::Jump(offset) => format!("OP_JUMP<{:+04}>", offset.unwrap_or(0)),
 
             OpCode::Loop(offset) => format!("OP_LOOP<-{:04}>", offset),
+
+            OpCode::Call(arg_count) => format!("OP_CALL<{}>", arg_count),
 
             OpCode::Negate => "OP_NEGATE".to_string(),
             OpCode::Not => "OP_NOT".to_string(),

@@ -15,9 +15,9 @@ struct CallFrame {
 }
 
 impl CallFrame {
-    fn new(ip: usize, stack_start: usize, function: Rc<FunctionObj>) -> Self {
+    fn new(stack_start: usize, function: Rc<FunctionObj>) -> Self {
         Self {
-            ip,
+            ip: 0,
             stack_start,
             function,
         }
@@ -32,12 +32,14 @@ pub struct VM<'a> {
 }
 
 impl<'a> VM<'a> {
+    const FRAME_MAX: usize = 256;
     const STACK_MAX: usize = 256;
     pub fn with_code(code: FunctionObj) -> Self {
         let mut stack = Vec::with_capacity(Self::STACK_MAX);
         let code = Rc::new(code);
         stack.push(Value::Function(Rc::clone(&code)));
-        let frame = CallFrame::new(0, 0, code);
+
+        let frame = CallFrame::new(0, code);
         Self {
             frames: vec![frame],
             lock: io::stdout().lock(),
@@ -106,14 +108,15 @@ impl<'a> VM<'a> {
         #[cfg(feature = "trace")]
         writeln!(self.lock, "=== TRACE ===").unwrap();
 
+        #[cfg(feature = "bench")]
+        let start = std::time::Instant::now();
+
         while !self.is_at_end() {
-            #[cfg(feature = "trace")]
-            self._trace();
+            // #[cfg(feature = "trace")]
+            // self._trace();
 
-            let ins = *self.advance();
-
-            let cont = self.execute_ins(ins)?;
-            if !cont {
+            let _return = self.execute_ins()?;
+            if _return {
                 break;
             }
         }
@@ -121,12 +124,20 @@ impl<'a> VM<'a> {
         if !self.stack.len() == 1 {
             eprintln!("WARNING: stack is not empty at the end of execution");
         }
+
+        #[cfg(feature = "bench")]
+        writeln!(
+            self.lock,
+            "=== BENCH ===\nelapsed time:{:?}",
+            start.elapsed()
+        );
+
         Ok(())
     }
 
-    fn execute_ins(&mut self, ins: OpCode) -> Result<bool> {
-        // return if we should continue
-        match ins {
+    fn execute_ins(&mut self) -> Result<bool> {
+        // return if we want to stop execution
+        match *self.advance() {
             OpCode::Constant(index) => self.add_const(index),
             OpCode::Print => self.print()?,
             OpCode::Pop => {
@@ -158,6 +169,8 @@ impl<'a> VM<'a> {
                 *self.ip_mut() -= offset as usize;
             }
 
+            OpCode::Call(arg_count) => self.call(arg_count)?,
+
             OpCode::True => self.push_stack(Value::Boolean(true)),
             OpCode::False => self.push_stack(Value::Boolean(false)),
             OpCode::Nil => self.push_stack(Value::Nil),
@@ -170,9 +183,46 @@ impl<'a> VM<'a> {
 
             OpCode::Add => self.add()?,
             op @ (OpCode::Subtract | OpCode::Multiply | OpCode::Divide) => self.binary(op)?,
-            OpCode::Return => return Ok(false),
+
+            OpCode::Return => {
+                let ret = self.pop_stack();
+                let frame = self.frames.pop().unwrap();
+
+                let stack_start = frame.stack_start;
+
+                if self.frames.is_empty() {
+                    self.pop_stack();
+                    return Ok(true);
+                }
+                self.stack.truncate(stack_start);
+                self.push_stack(ret);
+            }
         }
-        Ok(true)
+        Ok(false)
+    }
+
+    fn call(&mut self, arg_count: u8) -> Result<()> {
+        let calee = self.peek_stack_unwrapped(arg_count as usize);
+        match calee {
+            Value::Function(f) => {
+                if arg_count != f.arity() {
+                    return Err(self.runtime_error(&format!(
+                        "Expected {} arguments but got {} in call to {}()",
+                        f.arity(),
+                        arg_count,
+                        f.name()
+                    )));
+                }
+                if self.frames.len() == Self::FRAME_MAX {
+                    return Err(self.runtime_error("Stack overflow"));
+                }
+                let frame = CallFrame::new(self.stack.len() - arg_count as usize - 1, Rc::clone(f));
+                self.frames.push(frame);
+            }
+            _ => return Err(self.runtime_error(&format!("Can only call functions, not {}", calee))),
+        }
+
+        Ok(())
     }
 
     fn define_global(&mut self, index: u16) {
@@ -319,7 +369,7 @@ impl<'a> VM<'a> {
         let b = self.pop_number()?;
         let a = self.pop_number()?;
         self.stack.push(Value::Number(match operator {
-            OpCode::Subtract => a + b,
+            OpCode::Subtract => a - b,
             OpCode::Multiply => a * b,
             OpCode::Divide => a / b,
             _ => unreachable!(),
@@ -346,12 +396,15 @@ impl<'a> VM<'a> {
     }
 
     fn runtime_error(&self, msg: &str) -> Error {
-        Error::from(format!(
-            "Runtime error : {} at {}",
-            msg,
-            self.chunk()
-                .dissassemble_ins(self.curr_frame().stack_start + self.ip())
-        ))
+        let mut full_msg = format!("Runtime error: {} \nstack trace:", msg);
+
+        for frame in self.frames.iter().rev() {
+            let func = &frame.function;
+            let line = func.chunk().get_line(frame.ip - 1);
+            full_msg.push_str(&format!("\n[line {}] in {}()", line, func.name()));
+        }
+
+        return Error::from(full_msg);
     }
 
     fn is_at_end(&self) -> bool {

@@ -56,6 +56,8 @@ pub enum TokenKind<'a> {
 impl<'a> TokenKind<'a> {
     pub fn precedence(&self) -> Precedence {
         match self {
+            TokenKind::LeftParen => Precedence::Call,
+
             TokenKind::Slash | TokenKind::Star => Precedence::Factor,
 
             TokenKind::Bang => Precedence::Unary,

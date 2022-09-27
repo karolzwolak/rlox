@@ -136,13 +136,13 @@ impl<'a> Compiler<'a> {
         }
         if self.error_count != 0 {
             return Err(Error::from(format!(
-                "Aborting compilation due to {} errors",
+                "\nAborting compilation due to {} errors",
                 self.error_count
             )));
         }
 
         #[cfg(feature = "print_code")]
-        self.code.disassemble();
+        self.fun.disassemble();
 
         Ok(self.fun)
     }
@@ -256,7 +256,10 @@ impl<'a> Compiler<'a> {
             }
         }
         self.consume(TokenKind::RightParen, "Expect ')' after parameters")?;
-        self.consume(TokenKind::LeftBrace, "Expect '{' before function body.")?;
+        if !self.check_curr(TokenKind::LeftBrace) {
+            return Err(self.error_at_current("Expect '{' before function body."));
+        }
+        // self.consume(TokenKind::LeftBrace, "Expect '{' before function body.")?;
 
         self.block()?;
 
@@ -267,7 +270,7 @@ impl<'a> Compiler<'a> {
         let result = self.parse_fun();
 
         #[cfg(feature = "print_code")]
-        self.code.disassemble();
+        self.fun.disassemble();
 
         result?;
 
@@ -281,8 +284,25 @@ impl<'a> Compiler<'a> {
             TokenKind::If => self.if_stmt(),
             TokenKind::While => self.while_stmt(),
             TokenKind::For => self.for_stmt(),
+            TokenKind::Return => self.return_stmt(),
             _ => self.expression_stmt(),
         }
+    }
+
+    fn return_stmt(&mut self) -> Result<()> {
+        self.advance()?;
+        if self.check_curr(TokenKind::Semicolon) {
+            self.emit_ins(OpCode::Nil);
+            self.consume(TokenKind::Semicolon, "Expect ';' after return.")?;
+        } else {
+            if self.fun.is_main() {
+                return Err(self.error_at_current("Cannot return value from top-level code."));
+            }
+            self.expression()?;
+            self.consume(TokenKind::Semicolon, "Expect ';' after return value.")?;
+        }
+        self.emit_ins(OpCode::Return);
+        Ok(())
     }
 
     fn for_stmt(&mut self) -> Result<()> {
@@ -585,7 +605,7 @@ impl<'a> Compiler<'a> {
 
     fn report_error(&mut self, error: Error) {
         self.error_count += 1;
-        eprintln!("{}", error);
+        eprintln!("Parsing error: {}", error);
     }
 
     fn error_at(&self, token: &Token<'a>, msg: &str) -> Error {
@@ -723,6 +743,30 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn argument_list(&mut self) -> Result<u8> {
+        let mut arg_count = 0;
+        if !self.check_curr(TokenKind::RightParen) {
+            loop {
+                self.expression()?;
+                if arg_count == 255 {
+                    return Err(self.error_at_previous("Cannot have more than 255 arguments."));
+                }
+                arg_count += 1;
+                if !self.match_curr(TokenKind::Comma)? {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenKind::RightParen, "Expect ')' after arguments.")?;
+        Ok(arg_count)
+    }
+
+    fn call(&mut self) -> Result<()> {
+        let arg_count = self.argument_list()?;
+        self.emit_ins(OpCode::Call(arg_count));
+        Ok(())
+    }
+
     fn _trace(&mut self, token: &token::Token, prev_line: usize) {
         if token.line() != prev_line {
             println!("{:04}", token.line());
@@ -769,6 +813,8 @@ impl<'a> Compiler<'a> {
 
             TokenKind::Or => self.or(),
             TokenKind::And => self.and(),
+
+            TokenKind::LeftParen => self.call(),
 
             _ => Ok(()),
         }

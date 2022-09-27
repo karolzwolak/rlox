@@ -3,3 +3,6 @@
 .vscode/launch.json
 
 src/.compiler.rs.rustfmt
+gcm-diagnose.log
+
+*perf.data*
