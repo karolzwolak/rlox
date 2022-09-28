@@ -116,7 +116,7 @@ impl FunctionObj {
 pub enum Value {
     Number(f64),
     String(Rc<String>),
-    Function(Rc<FunctionObj>),
+    Function(usize),
     Boolean(bool),
     Nil,
 }
@@ -138,7 +138,7 @@ impl fmt::Display for Value {
             Value::String(s) => write!(f, "{}", s),
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Nil => write!(f, "<Nil>"),
-            Value::Function(fun) => write!(f, "{}", fun),
+            Value::Function(id) => write!(f, "#{}", id),
         }
     }
 }
@@ -150,7 +150,7 @@ impl PartialEq for Value {
             (Value::Boolean(a), Value::Boolean(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Nil, Value::Nil) => true,
-            (Value::Function(a), Value::Function(b)) => Rc::ptr_eq(a, b),
+            (Value::Function(a), Value::Function(b)) => a == b,
             _ => false,
         }
     }
@@ -161,7 +161,7 @@ impl Clone for Value {
         match self {
             Self::Number(n) => Self::Number(*n),
             Self::String(s) => Self::String(Rc::clone(s)),
-            Self::Function(f) => Self::Function(Rc::clone(f)),
+            Self::Function(id) => Self::Function(*id),
             Self::Boolean(b) => Self::Boolean(*b),
             Self::Nil => Self::Nil,
         }

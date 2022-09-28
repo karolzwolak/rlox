@@ -74,6 +74,8 @@ pub struct Compiler<'a> {
 
     fun: FunctionObj,
 
+    functions: Option<Vec<FunctionObj>>,
+
     locals: Vec<Local<'a>>,
     scope_depth: u32,
 }
@@ -83,20 +85,29 @@ impl<'a> Compiler<'a> {
     //     Self::new(Rc::new(Scanner::new(source)), FunctionObj::new_main())
     // }
 
-    pub fn new(parser: &'a RefCell<Parser<'a>>, fun: FunctionObj) -> Self {
+    fn new(
+        parser: &'a RefCell<Parser<'a>>,
+        fun: FunctionObj,
+        functions: Option<Vec<FunctionObj>>,
+    ) -> Self {
         let mut locals = Vec::with_capacity(256);
         locals.push(Local::new("", Some(0)));
         Self {
             parser,
             error_count: 0,
             fun,
+            functions,
             locals,
             scope_depth: 0,
         }
     }
 
+    pub fn with_fun(parser: &'a RefCell<Parser<'a>>, fun: FunctionObj) -> Self {
+        Self::new(parser, fun, None)
+    }
+
     pub fn main_compiler(parser: &'a RefCell<Parser<'a>>) -> Self {
-        Self::new(parser, FunctionObj::new_main())
+        Self::new(parser, FunctionObj::new_main(), Some(Vec::new()))
     }
 
     fn scan_token(&mut self) -> Result<Token<'a>> {
@@ -129,7 +140,7 @@ impl<'a> Compiler<'a> {
         self.curr_chunk().add_const_ins(value, line);
     }
 
-    pub fn compile(mut self) -> Result<FunctionObj> {
+    pub fn compile(mut self) -> Result<(FunctionObj, Vec<FunctionObj>)> {
         self.advance()?;
         while !self.is_at_end() {
             self.declaration();
@@ -144,7 +155,7 @@ impl<'a> Compiler<'a> {
         #[cfg(feature = "print_code")]
         self.fun.disassemble();
 
-        Ok(self.fun)
+        Ok((self.fun, self.functions.unwrap()))
     }
 
     fn synchronize(&mut self) {
@@ -206,11 +217,13 @@ impl<'a> Compiler<'a> {
 
         self.mark_initialized();
 
-        let fun_compiler = Compiler::new(self.parser, FunctionObj::new(name, 0));
+        let fun_compiler = Compiler::with_fun(self.parser, FunctionObj::new(name, 0));
 
         let fun = fun_compiler.compile_fun()?;
 
-        self.emit_const_ins(Value::Function(Rc::new(fun)));
+        self.emit_const_ins(Value::Function(self.functions.as_ref().unwrap().len()));
+        self.functions.as_mut().unwrap().push(fun);
+
         self.define_variable(id);
         Ok(())
     }

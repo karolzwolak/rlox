@@ -11,15 +11,15 @@ use crate::{
 struct CallFrame {
     ip: usize,
     stack_start: usize,
-    function: Rc<FunctionObj>,
+    fun_id: usize,
 }
 
 impl CallFrame {
-    fn new(stack_start: usize, function: Rc<FunctionObj>) -> Self {
+    fn new(stack_start: usize, fun_id: usize) -> Self {
         Self {
             ip: 0,
             stack_start,
-            function,
+            fun_id,
         }
     }
 }
@@ -28,21 +28,25 @@ pub struct VM<'a> {
     frames: Vec<CallFrame>,
     lock: io::StdoutLock<'a>,
     stack: Vec<bytecode::Value>,
+    functions: Vec<FunctionObj>,
     globals: HashMap<Rc<String>, Value>,
 }
 
 impl<'a> VM<'a> {
     const FRAME_MAX: usize = 256;
     const STACK_MAX: usize = 256;
-    pub fn with_code(code: FunctionObj) -> Self {
+    pub fn new(functions: Vec<FunctionObj>) -> Self {
         let mut stack = Vec::with_capacity(Self::STACK_MAX);
-        let code = Rc::new(code);
-        stack.push(Value::Function(Rc::clone(&code)));
 
-        let frame = CallFrame::new(0, code);
+        let code_id = functions.len() - 1;
+        let code = Value::Function(code_id);
+        stack.push(code);
+
+        let frame = CallFrame::new(0, code_id);
         Self {
             frames: vec![frame],
             lock: io::stdout().lock(),
+            functions,
             stack,
             globals: HashMap::new(),
         }
@@ -75,7 +79,12 @@ impl<'a> VM<'a> {
     }
 
     fn chunk(&self) -> &bytecode::Chunk {
-        self.frames.last().unwrap().function.chunk()
+        let id = self.frames.last().unwrap().fun_id;
+        self.get_fun(id).chunk()
+    }
+
+    fn get_fun(&self, id: usize) -> &FunctionObj {
+        &self.functions[id]
     }
 
     fn ip(&self) -> usize {
@@ -204,7 +213,8 @@ impl<'a> VM<'a> {
     fn call(&mut self, arg_count: u8) -> Result<()> {
         let calee = self.peek_stack_unwrapped(arg_count as usize);
         match calee {
-            Value::Function(f) => {
+            Value::Function(id) => {
+                let f = self.get_fun(*id);
                 if arg_count != f.arity() {
                     return Err(self.runtime_error(&format!(
                         "Expected {} arguments but got {} in call to {}()",
@@ -216,7 +226,7 @@ impl<'a> VM<'a> {
                 if self.frames.len() == Self::FRAME_MAX {
                     return Err(self.runtime_error("Stack overflow"));
                 }
-                let frame = CallFrame::new(self.stack.len() - arg_count as usize - 1, Rc::clone(f));
+                let frame = CallFrame::new(self.stack.len() - arg_count as usize - 1, *id);
                 self.frames.push(frame);
             }
             _ => return Err(self.runtime_error(&format!("Can only call functions, not {}", calee))),
@@ -399,7 +409,7 @@ impl<'a> VM<'a> {
         let mut full_msg = format!("Runtime error: {} \nstack trace:", msg);
 
         for frame in self.frames.iter().rev() {
-            let func = &frame.function;
+            let func = self.get_fun(frame.fun_id);
             let line = func.chunk().get_line(frame.ip - 1);
             full_msg.push_str(&format!("\n[line {}] in {}()", line, func.name()));
         }
