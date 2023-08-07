@@ -40,10 +40,8 @@ fn interpret(source: String) -> Result<()> {
     let parser = RefCell::new(compiler::Parser::with_source(&source));
     let compiler = compiler::Compiler::main_compiler(&parser);
 
-    let (code, mut funs) = compiler.compile()?;
+    let (code, funs) = compiler.compile()?;
 
-    funs.push(code);
-
-    let mut vm = vm::VM::new(funs);
+    let mut vm = vm::VM::new(code, funs);
     vm.run()
 }

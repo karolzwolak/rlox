@@ -35,9 +35,10 @@ pub struct VM<'a> {
 impl<'a> VM<'a> {
     const FRAME_MAX: usize = 256;
     const STACK_MAX: usize = 256;
-    pub fn new(functions: Vec<FunctionObj>) -> Self {
+    pub fn new(code: FunctionObj, mut functions: Vec<FunctionObj>) -> Self {
         let mut stack = Vec::with_capacity(Self::STACK_MAX);
 
+        functions.push(code);
         let code_id = functions.len() - 1;
         let code = Value::Function(code_id);
         stack.push(code);
